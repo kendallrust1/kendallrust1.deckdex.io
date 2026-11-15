@@ -3,16 +3,15 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#242423">
 <title>Box Tracker</title>
 <style>
-:root{--bg:#f6f5f1;--card:#fff;--ink:#1d1d1f;--mute:#6b6b70;--line:#e2e0d8;--acc:#d9362b;--acc-ink:#fff;--ok:#1f8a4c;
-box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);color-scheme:light}
-@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#141416;--card:#1e1e22;--ink:#f2f2f4;--mute:#9a9aa2;--line:#303036;--acc:#ff5a4d;--acc-ink:#1a0503;--ok:#4cc582;color-scheme:dark}}
-:root[data-theme="dark"]{--bg:#141416;--card:#1e1e22;--ink:#f2f2f4;--mute:#9a9aa2;--line:#303036;--acc:#ff5a4d;--acc-ink:#1a0503;--ok:#4cc582;color-scheme:dark}
+:root{--bg:#242423;--card:#2e2e2c;--ink:#ffffff;--mute:#b4b4ae;--line:#43433f;--acc:#f5cb5c;--acc-ink:#242423;
+box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);color-scheme:dark}
 html{scroll-padding-top:env(safe-area-inset-top,0px)}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
-main{max-width:720px;margin:0 auto;padding:20px 16px 48px}
+main{max-width:720px;margin:0 auto;padding:16px 16px 48px}
 h1{font-size:1.5rem;margin:0 0 4px}
 .sub{color:var(--mute);margin:0 0 20px;font-size:.92rem}
 .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:12px}
@@ -22,9 +21,11 @@ a{color:var(--acc)}
 input,select,textarea{font:inherit;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:9px 10px;min-width:0}
 input:focus,select:focus,textarea:focus{outline:2px solid var(--acc);outline-offset:1px}
 .grow{flex:1 1 140px}.sm{flex:0 0 78px}
-button{font:inherit;cursor:pointer;border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:8px;padding:9px 13px}
+button{font:inherit;font-weight:600;cursor:pointer;border:1px solid var(--acc);background:var(--acc);color:var(--acc-ink);border-radius:8px;padding:9px 13px}
+button:hover{filter:brightness(1.08)}
 button.pri{background:var(--acc);color:var(--acc-ink);border-color:var(--acc);font-weight:600}
-button.ghost{border:none;background:none;color:var(--mute);padding:6px 8px}
+button.ghost{border:none;background:none;color:var(--mute);padding:6px 8px;font-weight:400}
+button.ghost:hover{filter:none;color:var(--ink)}
 .stats{display:flex;gap:18px;margin:10px 0 16px}
 .stat b{display:block;font-size:1.4rem}.stat span{color:var(--mute);font-size:.8rem}
 .chip{display:inline-block;background:var(--bg);border:1px solid var(--line);border-radius:99px;padding:1px 9px;font-size:.78rem;color:var(--mute)}
@@ -44,11 +45,13 @@ textarea{width:100%;min-height:110px;font:12px/1.4 ui-monospace,monospace;margin
 #res{margin-top:6px}
 select.pr{padding:3px 6px;font-size:.8rem}
 .acct{font-size:.88rem;color:var(--mute)}
-.err{color:var(--acc)}
+.err{color:#ff8f87}
+.hd{max-width:720px;margin:0 auto;padding:16px 16px 0}.hd a{display:block}.hd svg,.hd img{display:block;width:100%;height:auto;border-radius:14px}
 </style>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
 </head>
 <body>
+<header class="hd"><a href="#" id="hd" aria-label="Home"><svg viewBox="0 0 720 150" role="img" aria-label="Box Tracker" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="hg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#3a3a36"/><stop offset="1" stop-color="#242423"/></linearGradient></defs><rect x="1" y="1" width="718" height="148" rx="14" fill="url(#hg)" stroke="#43433f" stroke-width="2"/><g transform="translate(100 76)"><rect x="-32" y="-56" width="64" height="92" rx="8" fill="#43433f" stroke="#f5cb5c" stroke-width="2" transform="rotate(-18 0 36)"/><rect x="-32" y="-56" width="64" height="92" rx="8" fill="#2e2e2c" stroke="#f5cb5c" stroke-width="2"/><g transform="rotate(18 0 36)"><rect x="-32" y="-56" width="64" height="92" rx="8" fill="#f5cb5c"/><circle cx="0" cy="-26" r="13" fill="#242423"/><rect x="-20" y="-2" width="40" height="5" rx="2.5" fill="#242423"/><rect x="-20" y="10" width="28" height="5" rx="2.5" fill="#242423"/></g></g><g fill="none" stroke="#f5cb5c" stroke-width="5" stroke-linecap="round"><path d="M196 62q12 13 0 26"/><path d="M210 52q20 23 0 46"/><path d="M224 42q28 33 0 66"/></g><text x="274" y="84" fill="#ffffff" font-family="system-ui,-apple-system,'Segoe UI',Roboto,sans-serif" font-size="44" font-weight="700">Box Tracker</text><text x="277" y="114" fill="#f5cb5c" font-family="system-ui,-apple-system,'Segoe UI',Roboto,sans-serif" font-size="17" font-weight="600" letter-spacing="3">SCAN · TRACK · COLLECT</text></svg></a></header>
 <main id="app"></main>
 <script>
 var KEY='pkbox:v1',S={boxes:{}},q='';
@@ -57,6 +60,7 @@ function persist(){try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}}
 function save(){var b=S.boxes[location.hash.slice(1)];if(b)b.t=Date.now();persist();push()}
 var SUPABASE_URL='https://acobfzadvymmrmuywtxm.supabase.co',SUPABASE_KEY='sb_publishable_4313Hd13DH1fg3gF2bUCGw_aClDsIhl';
 var CONTACT='';  // optional: how customers can reach you, e.g. "email hello@yourshop.com"
+var HEADER_IMG='';  // optional: web address of your own logo or banner image, to use instead of the built-in graphic
 var CODE=/^box-[0-9a-f]{12}$/;  // format of the codes made by nfc-tags-setup.sql
 var want='',sb=null,U=null,st='',pt,rec=false;
 try{if(SUPABASE_URL&&SUPABASE_KEY&&window.supabase)sb=supabase.createClient(SUPABASE_URL,SUPABASE_KEY,{auth:{flowType:'pkce'}})}catch(e){}
@@ -301,6 +305,7 @@ function showBk(){$('#bk').value=JSON.stringify(cur())}
 function restore(){try{var o=JSON.parse($('#bk').value);if(o&&Array.isArray(o.cards)){S.boxes[location.hash.slice(1)]={name:String(o.name||'Box'),cards:o.cards};save();render()}}catch(e){alert('That backup text could not be read.')}}
 function delBox(){if(confirm('Delete this box and its card list from this device?')){var gid=location.hash.slice(1);delete S.boxes[gid];(S.gone=S.gone||[]).push(gid);save();location.hash=''}}
 window.addEventListener('hashchange',function(){q='';render()});
+if(HEADER_IMG)$('#hd').innerHTML='<img src="'+esc(HEADER_IMG)+'" alt="Home">';
 render();
 initAuth();
 </script>
