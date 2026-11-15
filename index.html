@@ -59,6 +59,7 @@ try{var r=localStorage.getItem(KEY);if(r)S=JSON.parse(r)||S;if(!S.boxes)S.boxes=
 function persist(){try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}}
 function save(){var b=S.boxes[location.hash.slice(1)];if(b)b.t=Date.now();persist();push()}
 var SUPABASE_URL='https://acobfzadvymmrmuywtxm.supabase.co',SUPABASE_KEY='sb_publishable_4313Hd13DH1fg3gF2bUCGw_aClDsIhl';
+var ARR=location.search+location.hash,NOTE='';  // what the email link brought us back with
 var CONTACT='';  // optional: how customers can reach you, e.g. "email hello@yourshop.com"
 var HEADER_IMG='';  // optional: web address of your own logo or banner image, to use instead of the built-in graphic
 var CODE=/^box-[0-9a-f]{12}$/;  // format of the codes made by nfc-tags-setup.sql
@@ -94,12 +95,14 @@ function bar(){
   if(rec&&U)h='<div class="card acct"><b>Set a new password</b><div class="row" style="margin-top:8px"><input id="np" class="grow" type="password" placeholder="New password (6+ characters)" autocomplete="new-password"><button class="pri" onclick="setPw()">Save</button></div><p class="note err" id="am"></p></div>';
   else if(U)h='<div class="card acct row" style="justify-content:space-between;align-items:center"><span>'+esc(U.email||'')+' · <span id="st">'+esc(st)+'</span></span><button onclick="out()">Sign out</button></div>';
   else h='<details class="card acct"'+(want&&!U?' open':'')+'><summary>Sign in to sync across devices</summary><div class="row" style="margin-top:10px"><input id="ae" class="grow" type="email" placeholder="Email" autocomplete="email"><input id="ap" class="grow" type="password" placeholder="Password (6+ characters)" autocomplete="current-password"></div><div class="row" style="margin-top:8px"><button class="pri" onclick="auth(0)">Sign in</button><button onclick="auth(1)">Create account</button></div><div class="row" style="margin-top:6px"><button class="ghost" onclick="link(0)">Email me a sign-in link</button><button class="ghost" onclick="link(1)">Forgot password?</button></div><p class="note err" id="am"></p></details>';
+  if(U&&NOTE&&NOTE.indexOf('signed in.')<0)NOTE='';
+  if(NOTE&&!rec)h='<div class="card acct" role="status">'+esc(NOTE)+'</div>'+h;
   app.insertAdjacentHTML('afterbegin',h);
 }
 async function auth(m){
   var e=$('#ae').value.trim(),p=$('#ap').value,am=$('#am');am.textContent='';
   if(!e||p.length<6){am.textContent='Enter an email and a password of at least 6 characters.';return}
-  var r=m?await sb.auth.signUp({email:e,password:p}):await sb.auth.signInWithPassword({email:e,password:p});
+  var r=m?await sb.auth.signUp({email:e,password:p,options:{emailRedirectTo:location.origin+location.pathname}}):await sb.auth.signInWithPassword({email:e,password:p});
   if(r.error){am.textContent=r.error.message;return}
   if(m&&!r.data.session)am.textContent='Check your email to confirm your account, then sign in.';
 }
@@ -128,6 +131,8 @@ async function setPw(){
 async function initAuth(){
   if(!sb)return;
   try{var s=await sb.auth.getSession();U=s.data.session?s.data.session.user:null}catch(e){}
+  if(/error_code=|error=access_denied/.test(ARR))NOTE='That email link has expired or was already used. Sign in below, or use Forgot password to get a new one.';
+  else if(/[?&]code=|type=signup/.test(ARR))NOTE=U?'You\u2019re signed in.':'Email confirmed. Please sign in to continue.';
   sb.auth.onAuthStateChange(function(ev,sess){var nu=sess?sess.user:null,chg=(nu&&nu.id)!=(U&&U.id);U=nu;if(ev==='PASSWORD_RECOVERY')rec=true;if(chg||ev==='PASSWORD_RECOVERY'){render();if(U&&!rec){setTimeout(sync,0);goPending()}}});
   render();if(U){sync();goPending()}
   document.addEventListener('visibilitychange',function(){if(!document.hidden&&U)sync()});
@@ -409,7 +414,7 @@ function cp(){var l=$('#lk');l.select();try{navigator.clipboard.writeText(l.valu
 function showBk(){$('#bk').value=JSON.stringify(cur())}
 function restore(){try{var o=JSON.parse($('#bk').value);if(o&&Array.isArray(o.cards)){S.boxes[location.hash.slice(1)]={name:String(o.name||'Box'),cards:o.cards};save();render()}}catch(e){alert('That backup text could not be read.')}}
 function delBox(){if(confirm('Delete this box and its card list from this device?')){var gid=location.hash.slice(1);delete S.boxes[gid];(S.gone=S.gone||[]).push(gid);save();location.hash=''}}
-window.addEventListener('hashchange',function(){q='';FL={cat:'',ty:'',cond:'',set:''};render()});
+window.addEventListener('hashchange',function(){q='';NOTE='';FL={cat:'',ty:'',cond:'',set:''};render()});
 if(HEADER_IMG)$('#hd').innerHTML='<img src="'+esc(HEADER_IMG)+'" alt="Home">';
 render();
 initAuth();
