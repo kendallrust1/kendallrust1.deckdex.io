@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Box Tracker</title>
+<style>
+:root{--bg:#f6f5f1;--card:#fff;--ink:#1d1d1f;--mute:#6b6b70;--line:#e2e0d8;--acc:#d9362b;--acc-ink:#fff;--ok:#1f8a4c;
+box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);color-scheme:light}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#141416;--card:#1e1e22;--ink:#f2f2f4;--mute:#9a9aa2;--line:#303036;--acc:#ff5a4d;--acc-ink:#1a0503;--ok:#4cc582;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#141416;--card:#1e1e22;--ink:#f2f2f4;--mute:#9a9aa2;--line:#303036;--acc:#ff5a4d;--acc-ink:#1a0503;--ok:#4cc582;color-scheme:dark}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+main{max-width:720px;margin:0 auto;padding:20px 16px 48px}
+h1{font-size:1.5rem;margin:0 0 4px}
+.sub{color:var(--mute);margin:0 0 20px;font-size:.92rem}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:12px}
+a{color:var(--acc)}
+.back{display:inline-block;margin-bottom:12px;font-size:.92rem;text-decoration:none}
+.row{display:flex;gap:8px;flex-wrap:wrap}
+input,select,textarea{font:inherit;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:9px 10px;min-width:0}
+input:focus,select:focus,textarea:focus{outline:2px solid var(--acc);outline-offset:1px}
+.grow{flex:1 1 140px}.sm{flex:0 0 78px}
+button{font:inherit;cursor:pointer;border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:8px;padding:9px 13px}
+button.pri{background:var(--acc);color:var(--acc-ink);border-color:var(--acc);font-weight:600}
+button.ghost{border:none;background:none;color:var(--mute);padding:6px 8px}
+.stats{display:flex;gap:18px;margin:10px 0 16px}
+.stat b{display:block;font-size:1.4rem}.stat span{color:var(--mute);font-size:.8rem}
+.chip{display:inline-block;background:var(--bg);border:1px solid var(--line);border-radius:99px;padding:1px 9px;font-size:.78rem;color:var(--mute)}
+.item{display:flex;align-items:center;gap:10px;padding:10px 0;border-top:1px solid var(--line)}
+.item:first-child{border-top:none}
+.item .t{flex:1;min-width:0}.item .t b{display:block;overflow-wrap:anywhere}
+.item .t small{color:var(--mute)}
+.qty{display:flex;align-items:center;gap:6px}.qty button{padding:4px 11px}
+.empty{color:var(--mute);text-align:center;padding:18px 0}
+.boxlink{display:flex;justify-content:space-between;align-items:center;text-decoration:none;color:var(--ink)}
+.boxlink small{color:var(--mute)}
+label.l{display:block;font-size:.8rem;color:var(--mute);margin:0 0 4px}
+details{margin-top:18px}summary{cursor:pointer;color:var(--mute)}
+textarea{width:100%;min-height:110px;font:12px/1.4 ui-monospace,monospace;margin-top:8px}
+.note{font-size:.85rem;color:var(--mute);margin-top:8px}
+.th{width:40px;height:56px;object-fit:cover;border-radius:4px;background:var(--line);flex:none}
+#res{margin-top:6px}
+select.pr{padding:3px 6px;font-size:.8rem}
+.acct{font-size:.88rem;color:var(--mute)}
+.err{color:var(--acc)}
+</style>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+</head>
+<body>
+<main id="app"></main>
+<script>
+var KEY='pkbox:v1',S={boxes:{}},q='';
+try{var r=localStorage.getItem(KEY);if(r)S=JSON.parse(r)||S;if(!S.boxes)S.boxes={}}catch(e){}
+function persist(){try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}}
+function save(){var b=S.boxes[location.hash.slice(1)];if(b)b.t=Date.now();persist();push()}
+var SUPABASE_URL='https://acobfzadvymmrmuywtxm.supabase.co',SUPABASE_KEY='sb_publishable_4313Hd13DH1fg3gF2bUCGw_aClDsIhl';
+var CONTACT='';  // optional: how customers can reach you, e.g. "email hello@yourshop.com"
+var CODE=/^box-[0-9a-f]{12}$/;  // format of the codes made by nfc-tags-setup.sql
+var want='',sb=null,U=null,st='',pt,rec=false;
+try{if(SUPABASE_URL&&SUPABASE_KEY&&window.supabase)sb=supabase.createClient(SUPABASE_URL,SUPABASE_KEY,{auth:{flowType:'pkce'}})}catch(e){}
+function setSt(s){st=s;var e=$('#st');if(e)e.textContent=s}
+function push(){if(!sb||!U)return;clearTimeout(pt);pt=setTimeout(doPush,800)}
+async function doPush(){
+  if(!sb||!U)return;
+  var rows=[];
+  Object.keys(S.boxes).forEach(function(i){var b=S.boxes[i];if(!CODE.test(i))return;if(!b.t)b.t=Date.now();if(b.t>(b.s||0))rows.push({user_id:U.id,id:i,name:b.name,cards:b.cards,updated_at:new Date(b.t).toISOString()})});
+  try{
+    if(S.gone&&S.gone.length){var g=await sb.from('boxes').delete().in('id',S.gone);if(g.error)throw g.error;S.gone=[]}
+    if(rows.length){var r=await sb.from('boxes').upsert(rows,{onConflict:'user_id,id'});if(r.error)throw r.error;rows.forEach(function(x){S.boxes[x.id].s=Date.parse(x.updated_at)})}
+    persist();setSt('Synced');
+  }catch(e){setSt('Sync failed. Changes are kept on this device.')}
+}
+async function sync(){
+  if(!sb||!U)return;setSt('Syncing…');
+  var r=await sb.from('boxes').select('id,name,cards,updated_at');
+  if(r.error){setSt('Sync failed. Changes are kept on this device.');return}
+  var ch=false;
+  (r.data||[]).forEach(function(w){
+    if((S.gone||[]).indexOf(w.id)>-1)return;
+    var t=Date.parse(w.updated_at),l=S.boxes[w.id];
+    if(!l||t>(l.t||0)){S.boxes[w.id]={name:w.name,cards:w.cards||[],t:t,s:t};ch=true}
+  });
+  persist();await doPush();
+  if(ch)render();
+}
+function bar(){
+  var app=$('#app'),h='';if(!app||!sb)return;
+  if(rec&&U)h='<div class="card acct"><b>Set a new password</b><div class="row" style="margin-top:8px"><input id="np" class="grow" type="password" placeholder="New password (6+ characters)" autocomplete="new-password"><button class="pri" onclick="setPw()">Save</button></div><p class="note err" id="am"></p></div>';
+  else if(U)h='<div class="card acct row" style="justify-content:space-between;align-items:center"><span>'+esc(U.email||'')+' · <span id="st">'+esc(st)+'</span></span><button onclick="out()">Sign out</button></div>';
+  else h='<details class="card acct"'+(want&&!U?' open':'')+'><summary>Sign in to sync across devices</summary><div class="row" style="margin-top:10px"><input id="ae" class="grow" type="email" placeholder="Email" autocomplete="email"><input id="ap" class="grow" type="password" placeholder="Password (6+ characters)" autocomplete="current-password"></div><div class="row" style="margin-top:8px"><button class="pri" onclick="auth(0)">Sign in</button><button onclick="auth(1)">Create account</button></div><div class="row" style="margin-top:6px"><button class="ghost" onclick="link(0)">Email me a sign-in link</button><button class="ghost" onclick="link(1)">Forgot password?</button></div><p class="note err" id="am"></p></details>';
+  app.insertAdjacentHTML('afterbegin',h);
+}
+async function auth(m){
+  var e=$('#ae').value.trim(),p=$('#ap').value,am=$('#am');am.textContent='';
+  if(!e||p.length<6){am.textContent='Enter an email and a password of at least 6 characters.';return}
+  var r=m?await sb.auth.signUp({email:e,password:p}):await sb.auth.signInWithPassword({email:e,password:p});
+  if(r.error){am.textContent=r.error.message;return}
+  if(m&&!r.data.session)am.textContent='Check your email to confirm your account, then sign in.';
+}
+async function out(){
+  if(!confirm('Sign out? Your cards stay in your account and are removed from this device.'))return;
+  await doPush();
+  if(st.indexOf('failed')>-1&&!confirm('Some changes could not be synced and will be lost from this device. Sign out anyway?'))return;
+  S={boxes:{}};persist();await sb.auth.signOut();location.hash='';
+}
+function msg(t,bad){var m=$('#am');if(!m)return;m.className='note'+(bad?' err':'');m.textContent=t}
+async function link(reset){
+  var e=$('#ae').value.trim();
+  if(!e){msg('Enter your email first.',1);return}
+  var url=location.origin+location.pathname;
+  var r=reset?await sb.auth.resetPasswordForEmail(e,{redirectTo:url}):await sb.auth.signInWithOtp({email:e,options:{emailRedirectTo:url}});
+  if(r.error){msg(r.error.message,1);return}
+  msg('Check your email for the link, and open it in this same browser.');
+}
+async function setPw(){
+  var p=$('#np').value;
+  if(p.length<6){msg('Use at least 6 characters.',1);return}
+  var r=await sb.auth.updateUser({password:p});
+  if(r.error){msg(r.error.message,1);return}
+  rec=false;render();sync();
+}
+async function initAuth(){
+  if(!sb)return;
+  try{var s=await sb.auth.getSession();U=s.data.session?s.data.session.user:null}catch(e){}
+  sb.auth.onAuthStateChange(function(ev,sess){var nu=sess?sess.user:null,chg=(nu&&nu.id)!=(U&&U.id);U=nu;if(ev==='PASSWORD_RECOVERY')rec=true;if(chg||ev==='PASSWORD_RECOVERY'){render();if(U&&!rec){setTimeout(sync,0);goPending()}}});
+  render();if(U){sync();goPending()}
+  document.addEventListener('visibilitychange',function(){if(!document.hidden&&U)sync()});
+}
+
+function $(s){return document.querySelector(s)}
+function esc(s){return String(s).replace(/[&<>"']/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
+function slug(s){return s.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'')}
+var COND={NM:1,LP:.85,MP:.65,HP:.45,DMG:.25};
+function priced(c){return typeof c.p=='number'&&COND[c.cond]!=null}
+function fmt(n){return '$'+n.toFixed(2)}
+function totals(b){var n=0,v=0,pc=0;b.cards.forEach(function(c){n+=c.qty;if(priced(c)){v+=c.p*COND[c.cond]*c.qty;pc++}});return{u:b.cards.length,t:n,v:v,pc:pc}}
+
+function render(){view();bar()}
+function view(){
+  var id=location.hash.slice(1),app=$('#app');if(id.indexOf('=')>-1)id='';want='';
+  if(!id)return home(app);
+  var b=S.boxes[id];
+  if(!b)return tagView(app,id);
+  boxView(app,id,b);
+}
+
+function home(app){
+  var ids=Object.keys(S.boxes),h='<h1>Box Tracker</h1><p class="sub">Scan the tag on your box to register it and start tracking its cards.</p>';
+  h+='<div class="card"><label class="l">Have a box code?</label><div class="row"><input id="bc" class="grow" placeholder="e.g. box-3f9a1c0d2e4b"><button onclick="goCode()">Open</button></div></div>';
+  if(!ids.length)h+='<div class="empty">No boxes yet. Scan the tag on your box to register it.</div>';
+  ids.forEach(function(i){var b=S.boxes[i],t=totals(b);
+    h+='<a class="card boxlink" href="#'+i+'"><span><b>'+esc(b.name)+'</b><br><small>'+t.t+' cards · '+t.u+' unique'+(t.pc?' · ~'+fmt(t.v):'')+'</small></span><span class="chip">'+i+'</span></a>'});
+  app.innerHTML=h;
+}
+function makeBox(id){var n=$('#bn').value.trim()||id;S.boxes[id]={name:n,cards:[],t:Date.now()};save();render()}
+
+function boxView(app,id,b){
+  var t=totals(b),h='<a class="back" href="#">← All boxes</a><h1>'+esc(b.name)+'</h1><p class="sub"><span class="chip">'+id+'</span></p>';
+  h+='<div class="stats"><div class="stat"><b>'+t.t+'</b><span>total cards</span></div><div class="stat"><b>'+t.u+'</b><span>unique</span></div><div class="stat"><b>'+(t.pc?fmt(t.v):'—')+'</b><span>est. value'+(t.pc&&t.pc<t.u?' ('+t.pc+' of '+t.u+' priced)':'')+'</span></div></div>';
+  var lp=lastPriced(b);
+  h+='<div class="row" style="margin:-6px 0 4px;align-items:center"><button onclick="priceBox()">Update prices</button><span class="note" id="pst" style="margin:0">'+(lp?'Prices updated '+new Date(lp).toLocaleDateString():'')+'</span></div><p class="note" style="margin:4px 0 14px">Estimate uses the TCGplayer market price (USD) for the printing chosen on each card (normal by default; pick holo or reverse after updating prices), adjusted for condition (LP 85%, MP 65%, HP 45%, DMG 25%). Graded cards and hand-added cards are not priced.</p>';
+  h+='<div class="card"><label class="l">Add a card</label><form onsubmit="return addCard(event)"><div class="row">'
+   +'<input id="cn" class="grow" placeholder="Search card name…" required autocomplete="off" oninput="srch(this.value)">'
+   +'<input id="cs" class="grow" placeholder="Set (e.g. Obsidian Flames)">'
+   +'<input id="cx" class="sm" placeholder="No.">'
+   +'<input id="cq" class="sm" type="number" min="1" value="1" aria-label="Quantity">'
+   +'<select id="cc"><option>NM</option><option>LP</option><option>MP</option><option>HP</option><option>DMG</option><option>Graded</option></select>'
+   +'<button class="pri" type="submit">Add manually</button></div></form><div id="res"></div></div>';
+  h+='<input id="sq" class="grow" style="width:100%;margin-bottom:12px" placeholder="Search this box…" value="'+esc(q)+'" oninput="q=this.value;list()">';
+  h+='<div class="card" id="list"></div>';
+  h+='<details><summary>Tag link, backup &amp; delete</summary><div class="card" style="margin-top:10px"><label class="l">Link to this box</label><div class="row"><input id="lk" class="grow" readonly value="'+esc(location.href.split('#')[0]+'#'+id)+'" onfocus="this.select()"><button onclick="cp()">Copy</button></div>'
+   +'<p class="note">Cards are saved in this browser on this device. To move them, copy the backup text below and paste it into the same box on another device.</p>'
+   +'<textarea id="bk" spellcheck="false"></textarea><div class="row" style="margin-top:8px"><button onclick="showBk()">Show backup</button><button onclick="restore()">Restore from pasted text</button><button class="ghost" onclick="delBox()">Delete box</button></div></div></details>';
+  app.innerHTML=h;list();
+}
+function list(){
+  var id=location.hash.slice(1),b=S.boxes[id],el=$('#list');if(!b||!el)return;
+  var f=q.trim().toLowerCase(),rows=b.cards.filter(function(c){return !f||(c.name+' '+c.set+' '+c.num).toLowerCase().indexOf(f)>-1});
+  if(!rows.length){el.innerHTML='<div class="empty">'+(b.cards.length?'No matches.':'This box is empty. Add your first card above.')+'</div>';return}
+  el.innerHTML=rows.map(function(c){
+    return '<div class="item">'+(c.img?'<img class="th" src="'+esc(c.img)+'" alt="">':'')+'<div class="t"><b>'+esc(c.name)+'</b><small>'+esc([c.set,c.num&&'#'+c.num].filter(Boolean).join(' · '))+'</small>'+(priced(c)?' <small>· ~'+fmt(c.p*COND[c.cond])+' each</small>':'')+' <span class="chip">'+esc(c.cond)+'</span> '+prSel(c)+'</div>'
+    +'<div class="qty"><button onclick="chg(\''+c.id+'\',-1)" aria-label="Fewer">−</button><b>'+c.qty+'</b><button onclick="chg(\''+c.id+'\',1)" aria-label="More">+</button></div>'
+    +'<button class="ghost" onclick="rm(\''+c.id+'\')" aria-label="Remove">✕</button></div>'}).join('');
+}
+function cur(){return S.boxes[location.hash.slice(1)]}
+function addCard(e){
+  e.preventDefault();var b=cur();if(!b)return false;
+  var c={id:Date.now().toString(36)+Math.random().toString(36).slice(2,5),name:$('#cn').value.trim(),set:$('#cs').value.trim(),num:$('#cx').value.trim(),qty:Math.max(1,parseInt($('#cq').value)||1),cond:$('#cc').value};
+  if(!c.name)return false;
+  var m=b.cards.filter(function(x){return x.name.toLowerCase()==c.name.toLowerCase()&&x.set.toLowerCase()==c.set.toLowerCase()&&x.num==c.num&&x.cond==c.cond})[0];
+  if(m)m.qty+=c.qty;else b.cards.unshift(c);
+  save();render();return false;
+}
+
+var RES=[],tm,SETS=null;
+function setsMap(){
+  if(SETS)return Promise.resolve(SETS);
+  return fetch('https://api.tcgdex.net/v2/en/sets').then(function(r){return r.json()}).then(function(a){SETS={};a.forEach(function(s){SETS[s.id]=s.name});return SETS}).catch(function(){SETS={};return SETS});
+}
+function srch(v){
+  clearTimeout(tm);var el=$('#res');if(!el)return;
+  v=v.trim();if(v.length<2){el.innerHTML='';return}
+  tm=setTimeout(function(){
+    el.innerHTML='<div class="note">Searching…</div>';
+    var get=fetch('https://api.tcgdex.net/v2/en/cards?name='+encodeURIComponent(v)).then(function(r){if(r.status==404)return[];if(!r.ok)throw 0;return r.json()});
+    Promise.all([get,setsMap()]).then(function(x){
+      RES=(x[0]||[]).slice(0,15).map(function(c){var sid=c.id.slice(0,c.id.lastIndexOf('-'));return{id:c.id,name:c.name,number:c.localId,set:x[1][sid]||sid,img:c.image?c.image+'/low.webp':''}});
+      el.innerHTML=RES.length?RES.map(function(c,i){return '<div class="item">'+(c.img?'<img class="th" src="'+esc(c.img)+'" alt="" loading="lazy">':'')+'<div class="t"><b>'+esc(c.name)+'</b><small>'+esc(c.set)+' · #'+esc(c.number)+'</small></div><button class="pri" onclick="pick('+i+')">Add</button></div>'}).join(''):'<div class="note">No matches. You can add it by hand instead.</div>';
+    }).catch(function(){el.innerHTML='<div class="note">Search is unavailable right now. You can still add cards by hand.</div>'});
+  },350);
+}
+function pick(i){
+  var c=RES[i],b=cur();if(!c||!b)return;
+  var cond=$('#cc').value,qty=Math.max(1,parseInt($('#cq').value)||1);
+  var m=b.cards.filter(function(x){return x.api==c.id&&x.cond==cond&&!x.v})[0];
+  if(m)m.qty+=qty;else b.cards.unshift({id:Date.now().toString(36)+Math.random().toString(36).slice(2,5),api:c.id,name:c.name,set:c.set,num:c.number,qty:qty,cond:cond,img:c.img});
+  save();render();
+}
+var PR_ORDER=['normal','holo','reverse'],PR_NAME={normal:'Normal',holo:'Holo',reverse:'Reverse holo'};
+function prKeys(c){
+  if(!c.pv)return[];
+  return Object.keys(c.pv).filter(function(x){return typeof c.pv[x]=='number'}).sort(function(a,b){var i=PR_ORDER.indexOf(a),j=PR_ORDER.indexOf(b);return(i<0?9:i)-(j<0?9:j)});
+}
+function prName(k){return PR_NAME[k]||k}
+function prSel(c){
+  var ks=prKeys(c);if(!ks.length)return'';
+  var sel=c.v&&ks.indexOf(c.v)>-1?c.v:ks[0];
+  if(ks.length==1)return'<span class="chip">'+esc(prName(ks[0]))+'</span>';
+  return'<select class="pr" aria-label="Printing" onchange="setPr(\''+c.id+'\',this.value)">'+ks.map(function(k){return'<option value="'+esc(k)+'"'+(k==sel?' selected':'')+'>'+esc(prName(k))+'</option>'}).join('')+'</select>';
+}
+function setPr(id,k){
+  var b=cur();if(!b)return;
+  b.cards.forEach(function(c){if(c.id==id&&c.pv&&typeof c.pv[k]=='number'){c.v=k;c.p=c.pv[k]}});
+  save();render();
+}
+function lastPriced(b){var m=0;b.cards.forEach(function(c){if(c.pt>m)m=c.pt});return m}
+async function priceBox(){
+  var id=location.hash.slice(1),b=S.boxes[id];if(!b)return;
+  var ids=[],ps=$('#pst');
+  b.cards.forEach(function(c){if(c.api&&ids.indexOf(c.api)<0)ids.push(c.api)});
+  if(!ids.length){if(ps)ps.textContent='Only cards added through search can be priced.';return}
+  var got={},n=0,queue=ids.slice();
+  async function one(cid){
+    try{
+      var r=await fetch('https://api.tcgdex.net/v2/en/cards/'+encodeURIComponent(cid));
+      if(r.ok){
+        var j=await r.json(),t=j.pricing&&j.pricing.tcgplayer,pv={};
+        if(t)Object.keys(t).forEach(function(k){var v=t[k];if(v&&typeof v=='object'&&typeof v.marketPrice=='number')pv[k]=v.marketPrice});
+        if(Object.keys(pv).length)got[cid]=pv;
+      }
+    }catch(e){}
+    n++;var p=$('#pst');if(p)p.textContent='Pricing '+n+' of '+ids.length+'…';
+  }
+  await Promise.all([1,2,3,4,5].map(async function(){while(queue.length)await one(queue.shift())}));
+  b=S.boxes[id];if(!b)return;
+  b.cards.forEach(function(c){
+    var pv=c.api&&got[c.api];
+    if(pv){c.pv=pv;var ks=prKeys(c);c.p=pv[c.v&&pv[c.v]!=null?c.v:ks[0]];c.pt=Date.now()}
+  });
+  save();render();
+}
+function pend(v){try{if(v)localStorage.setItem('pkbox:pending',v);else localStorage.removeItem('pkbox:pending')}catch(e){}}
+function pending(){try{return localStorage.getItem('pkbox:pending')||''}catch(e){return''}}
+function goPending(){var p=pending();if(U&&p&&!location.hash.slice(1))location.hash=p}
+async function tagView(app,id){
+  if(!sb){app.innerHTML='<a class="back" href="#">← All boxes</a><p class="sub">Box registration isn’t available right now.</p>';return}
+  app.innerHTML='<a class="back" href="#">← All boxes</a><p class="sub">Checking this box…</p>';
+  var s='';
+  try{var r=await sb.rpc('tag_status',{c:id});if(!r.error)s=r.data}catch(e){}
+  if(location.hash.slice(1)!==id||S.boxes[id])return;
+  if(s!='unclaimed'&&pending()==id)pend('');
+  var back='<a class="back" href="#">← All boxes</a>',h='';
+  if(s=='unclaimed'){
+    pend(id);
+    if(!U){want=id;h=back+'<h1>Register your box</h1><p class="sub">Create a free account or sign in (above) to add this box to your collection and keep it synced across your devices.</p>'}
+    else h=back+'<h1>Register your box</h1><p class="sub">This box is ready to be added to your account.</p><div class="card"><label class="l">Name this box</label><div class="row"><input id="bn" class="grow" value="My Deck Box"><button class="pri" onclick="claim(\''+esc(id)+'\')">Register</button></div><p class="note err" id="cm"></p></div>';
+  }else if(s=='yours'){
+    if(U){await sync();if(S.boxes[id]){render();return}}
+    h=back+'<h1>Welcome back</h1><p class="sub">This box is registered to your account. Name it to start tracking its cards.</p><div class="card"><div class="row"><input id="bn" class="grow" value="My Deck Box"><button class="pri" onclick="makeBox(\''+esc(id)+'\')">Continue</button></div></div>';
+  }else if(s=='taken'){
+    if(!U){want=id;h=back+'<h1>Box already registered</h1><p class="sub">This box has already been registered. If it’s yours, sign in (above) to view it.</p>'}
+    else h=back+'<h1>Box already registered</h1><p class="sub">This box is registered to a different account.'+(CONTACT?' '+esc(CONTACT):' If you think this is a mistake, please contact the shop.')+'</p>';
+  }else if(s=='unknown'){h=back+'<h1>Box not found</h1><p class="sub">We couldn’t find a box with this code. Check the code, or tap the tag again.</p>'}else{h=back+'<h1>Couldn’t check this box</h1><p class="sub">Please check your connection and try again.</p>'}
+  if(location.hash.slice(1)!==id||S.boxes[id])return;
+  app.innerHTML=h;bar();
+}
+async function claim(id){
+  var n=($('#bn').value||'').trim()||'My Deck Box',cm=$('#cm'),r;
+  try{r=await sb.rpc('claim_tag',{c:id})}catch(e){r={error:e}}
+  if(r.error||!r.data){if(cm)cm.textContent='Could not register this box. Please try again.';return}
+  if(r.data=='claimed'){pend('');S.boxes[id]={name:n,cards:[],t:Date.now()};save();render();return}
+  render();
+}
+function goCode(){var c=slug(($('#bc').value||'').trim());if(c)location.hash=c}
+function chg(i,d){var b=cur();b.cards.forEach(function(c){if(c.id==i)c.qty=Math.max(0,c.qty+d)});b.cards=b.cards.filter(function(c){return c.qty>0});save();render()}
+function rm(i){var b=cur();b.cards=b.cards.filter(function(c){return c.id!=i});save();render()}
+function cp(){var l=$('#lk');l.select();try{navigator.clipboard.writeText(l.value)}catch(e){try{document.execCommand('copy')}catch(e2){}}}
+function showBk(){$('#bk').value=JSON.stringify(cur())}
+function restore(){try{var o=JSON.parse($('#bk').value);if(o&&Array.isArray(o.cards)){S.boxes[location.hash.slice(1)]={name:String(o.name||'Box'),cards:o.cards};save();render()}}catch(e){alert('That backup text could not be read.')}}
+function delBox(){if(confirm('Delete this box and its card list from this device?')){var gid=location.hash.slice(1);delete S.boxes[gid];(S.gone=S.gone||[]).push(gid);save();location.hash=''}}
+window.addEventListener('hashchange',function(){q='';render()});
+render();
+initAuth();
+</script>
+</body>
+</html>
