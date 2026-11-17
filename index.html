@@ -156,7 +156,7 @@ function view(){
 }
 
 function home(app){
-  var ids=Object.keys(S.boxes),h='<h1>Deck Dex</h1><p class="sub">Scan the tag on your box to register it and start tracking its cards.</p>';
+  var ids=Object.keys(S.boxes),h='<h1>Register a Box</h1><p class="sub">Scan the tag on your box to register it and start tracking its cards.</p>';
   h+='<div class="card"><label class="l">Have a box code?</label><div class="row"><input id="bc" class="grow" placeholder="e.g. box-3f9a1c0d2e4b"><button onclick="goCode()">Open</button></div></div>';
   if(!ids.length)h+='<div class="empty">No boxes yet. Scan the tag on your box to register it.</div>';
   ids.forEach(function(i){var b=S.boxes[i],t=totals(b);
