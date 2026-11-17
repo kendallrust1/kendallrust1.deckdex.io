@@ -176,7 +176,9 @@ function boxView(app,id,b){
    +'<input id="cx" class="sm" placeholder="No.">'
    +'<input id="cq" class="sm" type="number" min="1" value="1" aria-label="Quantity">'
    +'<select id="cc"><option>NM</option><option>LP</option><option>MP</option><option>HP</option><option>DMG</option><option>Graded</option></select>'
-   +'<button class="pri" type="submit">Add manually</button></div></form><div id="res"></div></div>';
+   +'<button class="pri" type="submit">Add manually</button></div></form><div id="res"></div>'
+   +'<div class="row" style="margin-top:10px;align-items:center"><span class="note" style="margin:0">Have your collection in another app?</span><button onclick="impPick()">Import CSV</button><input type="file" id="impf" accept=".csv,.tsv,.txt,text/csv,text/tab-separated-values" hidden onchange="impFile(this)"></div></div>';
+  h+='<div id="imp"></div>';
   h+='<div class="row" style="margin-bottom:12px"><input id="sq" class="grow" placeholder="Search this box…" value="'+esc(q)+'" oninput="q=this.value;list()"><select id="so" aria-label="Sort cards" onchange="setSort(this.value)">'+SORTS.map(function(o){return'<option value="'+o[0]+'"'+(o[0]==srt?' selected':'')+'>'+o[1]+'</option>'}).join('')+'</select></div>';
   h+='<div class="row" id="fb" style="margin:-4px 0 12px;align-items:center"></div>';
   h+='<div class="card" id="list"></div>';
@@ -184,7 +186,7 @@ function boxView(app,id,b){
   h+='<details><summary>Tag link, backup &amp; delete</summary><div class="card" style="margin-top:10px"><label class="l">Link to this box</label><div class="row"><input id="lk" class="grow" readonly value="'+esc(location.href.split('#')[0]+'#'+id)+'" onfocus="this.select()"><button onclick="cp()">Copy</button></div>'
    +'<p class="note">Cards are saved in this browser on this device. To move them, copy the backup text below and paste it into the same box on another device.</p>'
    +'<textarea id="bk" spellcheck="false"></textarea><div class="row" style="margin-top:8px"><button onclick="showBk()">Show backup</button><button onclick="restore()">Restore from pasted text</button><button class="ghost" onclick="delBox()">Delete box</button></div></div></details>';
-  app.innerHTML=h;filtBar();list();
+  app.innerHTML=h;filtBar();list();impDraw();
   var hh=location.hash;fillTypes().then(function(ch){if(ch&&location.hash==hh){filtBar();list()}});
 }
 function list(){
@@ -331,9 +333,189 @@ async function priceBox(){
   b.cards.forEach(function(c){
     var pv=c.api&&got[c.api];
     if(c.api&&gt[c.api]){c.cat=gt[c.api].cat;c.ty=gt[c.api].ty}
-    if(pv){c.pv=pv;var ks=prKeys(c);c.p=pv[c.v&&pv[c.v]!=null?c.v:ks[0]];c.pt=Date.now()}
+    if(pv){c.pv=pv;var ks=prKeys(c),k=prPick(pv,c.v);if(k)c.v=k;c.p=pv[k||ks[0]];c.pt=Date.now()}
   });
   save();render();
+}
+function prPick(pv,v){
+  if(!v||!pv)return'';if(pv[v]!=null)return v;
+  var ks=Object.keys(pv).filter(function(k){return typeof pv[k]=='number'});
+  if(v=='reverse')return ks.filter(function(k){return/reverse/i.test(k)})[0]||'';
+  if(v=='holo')return ks.filter(function(k){return/holo|foil/i.test(k)&&!/reverse/i.test(k)})[0]||'';
+  if(v=='normal')return ks.filter(function(k){return/normal|unlimited/i.test(k)})[0]||'';
+  return'';
+}
+// ---- CSV import from other collection apps ----
+var IMP=null;
+var IMF=[['name','Card name'],['set','Set'],['num','Number'],['qty','Quantity'],['cond','Condition'],['pr','Printing']];
+var IMA={
+  name:['name','cardname','productname','card','cardtitle','title','product','pokemon','pokemonname'],
+  set:['set','setname','expansion','expansionname','edition','groupname','setfullname','settitle'],
+  num:['number','cardnumber','collectornumber','setnumber','localid','cardno','no','num','nr'],
+  qty:['quantity','qty','count','totalquantity','havequantity','ownedquantity','owned','copies','amount','addtoquantity'],
+  cond:['condition','cond','cardcondition','grade'],
+  pr:['printing','variant','printingtype','printtype','cardvariant','finish','foil','foiltype','version']
+};
+function hk(h){h=String(h||'').trim();return h=='#'?'number':h.toLowerCase().replace(/[^a-z0-9]+/g,'')}
+function impDetect(head){
+  var ks=head.map(hk),used={},m={};
+  IMF.forEach(function(f){m[f[0]]=-1});
+  [0,1].forEach(function(pass){IMF.forEach(function(f){
+    var k=f[0];if(m[k]>-1)return;
+    IMA[k].some(function(a){
+      if(pass&&a.length<4)return false;
+      for(var i=0;i<ks.length;i++)if(!used[i]&&(pass?ks[i].indexOf(a)>-1:ks[i]==a)){m[k]=i;used[i]=1;return true}
+      return false;
+    });
+  })});
+  return m;
+}
+function parseCSV(t){
+  t=String(t).replace(/^﻿/,'');
+  var first=t.split(/\r?\n/).filter(function(l){return l.trim()&&!/^sep=/i.test(l)})[0]||'';
+  var d=[',',';','\t'].sort(function(a,b){return first.split(b).length-first.split(a).length})[0];
+  var rows=[],row=[],f='',qt=false,c,i;
+  for(i=0;i<t.length;i++){c=t[i];
+    if(qt){if(c=='"'){if(t[i+1]=='"'){f+='"';i++}else qt=false}else f+=c}
+    else if(c=='"'&&!f.trim())qt=true,f='';
+    else if(c==d){row.push(f);f=''}
+    else if(c=='\n'||c=='\r'){if(c=='\r'&&t[i+1]=='\n')i++;row.push(f);f='';rows.push(row);row=[]}
+    else f+=c}
+  if(f!==''||row.length){row.push(f);rows.push(row)}
+  return rows.filter(function(r){return r.some(function(x){return x.trim()})&&!(r.length==1&&/^sep=/i.test(r[0]))});
+}
+function impCond(v,def){
+  var s=String(v||'').toLowerCase().trim();if(!s)return def;
+  if(/psa|bgs|cgc|sgc|beckett|grad|slab/.test(s))return'Graded';
+  if(/dmg|damag|poor/.test(s))return'DMG';
+  if(/heav|\bhp\b/.test(s))return'HP';
+  if(/moder|\bmp\b|\bgood\b|\bgd\b/.test(s))return'MP';
+  if(/light|\blp\b|excellent|\bex\b|\bsp\b|slight/.test(s))return'LP';
+  if(/mint|\bnm\b|\bm\b|\bnew\b/.test(s))return'NM';
+  if(/played|\bpl\b/.test(s))return'MP';
+  return def;
+}
+function impPr(v){
+  var s=String(v||'').toLowerCase().trim();
+  if(/^(true|yes|y|1|x)$/.test(s))return'holo';
+  if(/^(false|no|n|0)$/.test(s))return'normal';
+  if(/reverse|\brev\b|\brh\b/.test(s))return'reverse';
+  if(/non-?\s?(foil|holo)/.test(s))return'normal';
+  if(/holo|foil/.test(s))return'holo';
+  if(/normal|regular|unlimited|standard/.test(s))return'normal';
+  return'';
+}
+function cell(v){v=String(v==null?'':v).trim();if(/^'[=+\-@]/.test(v))v=v.slice(1);return v}
+function impItems(){
+  var m=IMP.map,out=[],skip=0;
+  IMP.rows.forEach(function(r){
+    function g(k){return m[k]>-1?cell(r[m[k]]):''}
+    var name=g('name');if(!name)return;
+    var num=g('num'),nm=name.match(/\s*[-–(]\s*#?(\w+)\s*\/\s*\w+\s*\)?\s*$/)||name.match(/\s+-\s+#?(\d+\w*)\s*$/);
+    if(nm){name=name.slice(0,nm.index).trim();if(!num)num=nm[1]}
+    num=num.replace(/^#/,'').split('/')[0].trim();
+    var qs=g('qty'),qty=m.qty>-1?parseInt(qs.replace(/[^\d-]/g,''),10):1;
+    if(m.qty>-1&&!qs)qty=1;
+    if(!(qty>0)){skip++;return}
+    var cs=g('cond');
+    out.push({name:name,set:g('set'),num:num,qty:qty,cond:impCond(cs,IMP.def),pr:impPr(g('pr'))||impPrFromCond(cs)});
+  });
+  IMP.skip=skip;return out;
+}
+function impPrFromCond(s){s=String(s||'').toLowerCase();return/reverse/.test(s)?'reverse':/holo|foil/.test(s)?'holo':''}
+function impPick(){var f=$('#impf');if(f){f.value='';f.click()}}
+function impFile(inp){
+  var file=inp.files&&inp.files[0];if(!file)return;
+  if(file.size>10*1024*1024){IMP={msg:'That file is too large to import (10 MB max).',err:1};impDraw();return}
+  var rd=new FileReader();
+  rd.onload=function(){impLoad(file.name,String(rd.result||''))};
+  rd.onerror=function(){IMP={msg:'That file could not be read.',err:1};impDraw()};
+  rd.readAsText(file);
+}
+function impLoad(fn,txt){
+  var rows=parseCSV(txt),hi=0;
+  for(var i=0;i<Math.min(10,rows.length);i++)if(impDetect(rows[i]).name>-1){hi=i;break}
+  if(rows.length<hi+2){IMP={msg:'No cards were found in '+fn+'. Make sure it is a CSV export with a header row.',err:1};impDraw();return}
+  IMP={file:fn,head:rows[hi],rows:rows.slice(hi+1),map:impDetect(rows[hi]),def:'NM',look:true,box:location.hash.slice(1)};
+  impDraw();
+  var e=$('#imp');if(e&&e.scrollIntoView)e.scrollIntoView({behavior:'smooth',block:'start'});
+}
+function impSet(k,v){IMP.map[k]=parseInt(v,10);impDraw()}
+function impCancel(){IMP=null;impDraw()}
+function impDraw(){
+  var el=$('#imp');if(!el)return;
+  if(!IMP||IMP.box&&IMP.box!=location.hash.slice(1)){el.innerHTML='';return}
+  if(IMP.msg){el.innerHTML='<div class="card" role="status"><p class="note'+(IMP.err?' err':'')+'" style="margin:0 0 8px">'+esc(IMP.msg)+'</p><button class="ghost" onclick="impCancel()">Close</button></div>';return}
+  var h='<div class="card"><label class="l">Import from CSV</label><p class="note" style="margin:0 0 10px">'+esc(IMP.file)+' · '+IMP.rows.length+' rows. Check that each field points at the right column, then import.</p><div class="row">';
+  IMF.forEach(function(f){
+    h+='<div class="grow"><label class="l">'+f[1]+(f[0]=='name'?' *':'')+'</label><select style="width:100%" '+(IMP.busy?'disabled ':'')+'onchange="impSet(\''+f[0]+'\',this.value)"><option value="-1">'+(f[0]=='qty'?'— (1 each)':'— none —')+'</option>'
+     +IMP.head.map(function(c,i){return'<option value="'+i+'"'+(IMP.map[f[0]]==i?' selected':'')+'>'+esc(c.trim()||('Column '+(i+1)))+'</option>'}).join('')+'</select></div>';
+  });
+  h+='</div><div class="row" style="margin-top:8px;align-items:center"><label class="l" style="margin:0" for="impd">Condition when not given</label><select id="impd" '+(IMP.busy?'disabled ':'')+'onchange="IMP.def=this.value;impDraw()">'+['NM','LP','MP','HP','DMG','Graded'].map(function(c){return'<option'+(IMP.def==c?' selected':'')+'>'+c+'</option>'}).join('')+'</select></div>';
+  h+='<label class="note" style="display:flex;gap:8px;align-items:flex-start;margin-top:10px"><input type="checkbox" style="margin-top:3px"'+(IMP.look?' checked':'')+(IMP.busy?' disabled':'')+' onchange="IMP.look=this.checked"> <span>Match cards to the card database so they get pictures and can be priced. Takes longer for big files.</span></label>';
+  if(IMP.map.name<0){h+='<p class="note err">Choose which column holds the card name.</p>'}
+  else{
+    var it=impItems(),n=0;it.forEach(function(x){n+=x.qty});
+    h+='<div style="margin-top:8px">'+it.slice(0,5).map(function(x){return'<div class="item"><div class="t"><b>'+x.qty+'× '+esc(x.name)+'</b><small>'+esc([x.set,x.num&&'#'+x.num].filter(Boolean).join(' · '))+'</small> <span class="chip">'+esc(x.cond)+'</span>'+(x.pr?' <span class="chip">'+esc(PR_NAME[x.pr]||x.pr)+'</span>':'')+'</div></div>'}).join('')+'</div>';
+    if(it.length>5)h+='<p class="note" style="margin:4px 0 0">…and '+(it.length-5)+' more.</p>';
+    if(IMP.skip)h+='<p class="note" style="margin:4px 0 0">'+IMP.skip+' row'+(IMP.skip>1?'s':'')+' with a quantity of 0 will be skipped.</p>';
+    h+='<div class="row" style="margin-top:12px;align-items:center">'+(it.length?'<button class="pri" '+(IMP.busy?'disabled ':'')+'onclick="impGo()">Import '+n+' card'+(n==1?'':'s')+'</button>':'<span class="note err" style="margin:0">No cards found with this column setup.</span>')+'<button class="ghost" onclick="impCancel()">Cancel</button></div>';
+  }
+  h+='<p class="note" id="imps"></p></div>';
+  el.innerHTML=h;
+}
+function nk(s){return String(s||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9]+/g,'')}
+function nnum(s){return String(s||'').trim().toLowerCase().replace(/^0+(?=\w)/,'')}
+function baseName(s){return String(s||'').replace(/\s*[\(\[][^\)\]]*[\)\]]\s*/g,' ').replace(/\s+-\s+.*$/,'').trim()}
+function setHit(a,b){a=nk(a);b=nk(b);if(!a||!b)return false;if(a==b)return true;var s=a.length<b.length?a:b,l=a.length<b.length?b:a;return s.length>=3&&l.indexOf(s)>-1}
+async function impMatch(items,prog){
+  var sets=await setsMap(),found={},list=[];
+  items.forEach(function(it){var k=baseName(it.name);if(k&&!(k in found)){found[k]=null;list.push(k)}});
+  var done=0,qu=list.slice();
+  await Promise.all([1,2,3,4,5].map(async function(){while(qu.length){var n=qu.shift();
+    try{var r=await fetch('https://api.tcgdex.net/v2/en/cards?name='+encodeURIComponent(n));if(r.ok)found[n]=await r.json();else if(r.status==404)found[n]=[]}catch(e){}
+    prog(++done,list.length)}}));
+  var hit=0;
+  items.forEach(function(it){
+    var k=baseName(it.name),all=found[k]||[];
+    var cs=all.filter(function(x){return nk(x.name)==nk(k)});if(!cs.length)cs=all;
+    cs=cs.map(function(x){var sid=x.id.slice(0,x.id.lastIndexOf('-'));return{x:x,sid:sid,sn:sets[sid]||sid}});
+    var byNum=it.num?cs.filter(function(c){return nnum(c.x.localId)==nnum(it.num)}):[];
+    var bySet=it.set?cs.filter(function(c){return setHit(c.sn,it.set)||nk(c.sid)==nk(it.set)}):[];
+    var m=null;
+    if(it.num&&it.set)m=byNum.filter(function(c){return bySet.indexOf(c)>-1})[0]||(byNum.length==1&&cs.length>0&&!bySet.length?byNum[0]:null);
+    else if(it.num)m=byNum.length==1?byNum[0]:null;
+    else if(it.set)m=bySet.length==1?bySet[0]:null;
+    if(m){hit++;it.api=m.x.id;it.img=m.x.image?m.x.image+'/low.webp':'';it.name=m.x.name;it.set=m.sn;it.num=m.x.localId}
+  });
+  return hit;
+}
+function impAdd(b,it){
+  var m=b.cards.filter(function(x){
+    if(x.cond!=it.cond||(x.v||'')!=(it.pr||''))return false;
+    if(it.api)return x.api==it.api;
+    return !x.api&&x.name.toLowerCase()==it.name.toLowerCase()&&(x.set||'').toLowerCase()==(it.set||'').toLowerCase()&&(x.num||'')==(it.num||'');
+  })[0];
+  if(m){m.qty+=it.qty;return}
+  var c={id:Date.now().toString(36)+Math.random().toString(36).slice(2,7),name:it.name,set:it.set||'',num:it.num||'',qty:it.qty,cond:it.cond};
+  if(it.api){c.api=it.api;if(it.img)c.img=it.img}
+  if(it.pr)c.v=it.pr;
+  b.cards.unshift(c);
+}
+async function impGo(){
+  if(!IMP||IMP.busy||IMP.map.name<0)return;
+  var bid=IMP.box,items=impItems();if(!items.length)return;
+  IMP.busy=true;impDraw();
+  function st(t){var e=$('#imps');if(e)e.textContent=t}
+  var hit=0;
+  if(IMP.look){st('Matching cards…');try{hit=await impMatch(items,function(d,n){st('Matching cards… '+d+' of '+n)})}catch(e){}}
+  var b=S.boxes[bid];if(!b){IMP=null;return}
+  var n=0;for(var i=items.length-1;i>=0;i--){impAdd(b,items[i]);n+=items[i].qty}
+  save();
+  var msg='Imported '+n+' card'+(n==1?'':'s')+'.';
+  if(IMP&&IMP.look)msg+=hit==items.length?' All of them were matched, so tap Update prices to get their values.':' '+hit+' of '+items.length+' were matched to the card database'+(hit?' (tap Update prices to get their values)':'')+'. The rest were added by hand and won’t be priced.';
+  if(location.hash.slice(1)==bid){IMP={msg:msg,box:bid};render()}else IMP=null;
+  var h=location.hash;fillTypes().then(function(ch){if(ch&&location.hash==h){filtBar();list()}});
 }
 function pend(v){try{if(v)localStorage.setItem('pkbox:pending',v);else localStorage.removeItem('pkbox:pending')}catch(e){}}
 function pending(){try{return localStorage.getItem('pkbox:pending')||''}catch(e){return''}}
@@ -414,7 +596,7 @@ function cp(){var l=$('#lk');l.select();try{navigator.clipboard.writeText(l.valu
 function showBk(){$('#bk').value=JSON.stringify(cur())}
 function restore(){try{var o=JSON.parse($('#bk').value);if(o&&Array.isArray(o.cards)){S.boxes[location.hash.slice(1)]={name:String(o.name||'Box'),cards:o.cards};save();render()}}catch(e){alert('That backup text could not be read.')}}
 function delBox(){if(confirm('Delete this box and its card list from this device?')){var gid=location.hash.slice(1);delete S.boxes[gid];(S.gone=S.gone||[]).push(gid);save();location.hash=''}}
-window.addEventListener('hashchange',function(){q='';NOTE='';FL={cat:'',ty:'',cond:'',set:''};render()});
+window.addEventListener('hashchange',function(){q='';NOTE='';IMP=null;FL={cat:'',ty:'',cond:'',set:''};render()});
 if(HEADER_IMG)$('#hd').innerHTML='<img src="'+esc(HEADER_IMG)+'" alt="Home">';
 render();
 initAuth();
