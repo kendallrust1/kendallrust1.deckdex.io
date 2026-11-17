@@ -179,7 +179,7 @@ function boxView(app,id,b){
    +'<button class="pri" type="submit">Add manually</button></div></form><div id="res"></div>'
    +'<div class="row" style="margin-top:10px;align-items:center"><span class="note" style="margin:0">Have your collection in another app?</span><button onclick="impPick()">Import CSV</button><input type="file" id="impf" accept=".csv,.tsv,.txt,text/csv,text/tab-separated-values" hidden onchange="impFile(this)"></div></div>';
   h+='<div id="imp"></div>';
-  h+='<div class="row" style="margin-bottom:12px"><input id="sq" class="grow" placeholder="Search this box…" value="'+esc(q)+'" oninput="q=this.value;list()"><select id="so" aria-label="Sort cards" onchange="setSort(this.value)">'+SORTS.map(function(o){return'<option value="'+o[0]+'"'+(o[0]==srt?' selected':'')+'>'+o[1]+'</option>'}).join('')+'</select></div>';
+  h+='<div class="row" style="margin-bottom:12px"><input id="sq" class="grow" placeholder="Search this box…" value="'+esc(q)+'" oninput="q=this.value;window.list()"><select id="so" aria-label="Sort cards" onchange="setSort(this.value)">'+SORTS.map(function(o){return'<option value="'+o[0]+'"'+(o[0]==srt?' selected':'')+'>'+o[1]+'</option>'}).join('')+'</select></div>';
   h+='<div class="row" id="fb" style="margin:-4px 0 12px;align-items:center"></div>';
   h+='<div class="card" id="list"></div>';
   h+='<div class="row" style="align-items:center;margin:-2px 0 12px"><button onclick="copyList()">Copy list</button><button onclick="dlCsv()">Download CSV</button><span class="note" id="exs" style="margin:0"></span></div>';
