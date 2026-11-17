@@ -182,7 +182,7 @@ function boxView(app,id,b){
   h+='<div class="row" style="margin-bottom:12px"><input id="sq" class="grow" placeholder="Search this box…" value="'+esc(q)+'" oninput="q=this.value;window.list()"><select id="so" aria-label="Sort cards" onchange="setSort(this.value)">'+SORTS.map(function(o){return'<option value="'+o[0]+'"'+(o[0]==srt?' selected':'')+'>'+o[1]+'</option>'}).join('')+'</select></div>';
   h+='<div class="row" id="fb" style="margin:-4px 0 12px;align-items:center"></div>';
   h+='<div class="card" id="list"></div>';
-  h+='<div class="row" style="align-items:center;margin:-2px 0 12px"><button onclick="copyList()">Copy list</button><button onclick="dlCsv()">Download CSV</button><span class="note" id="exs" style="margin:0"></span></div>';
+  h+='<div class="row" style="align-items:center;margin:-2px 0 12px"><button onclick="copyList()">Copy list</button><button onclick="dlCsv()">Download CSV</button><button class="ghost" onclick="clearBox()">Delete all cards</button><span class="note" id="exs" style="margin:0"></span></div>';
   h+='<details><summary>Tag link, backup &amp; delete</summary><div class="card" style="margin-top:10px"><label class="l">Link to this box</label><div class="row"><input id="lk" class="grow" readonly value="'+esc(location.href.split('#')[0]+'#'+id)+'" onfocus="this.select()"><button onclick="cp()">Copy</button></div>'
    +'<p class="note">Cards are saved in this browser on this device. To move them, copy the backup text below and paste it into the same box on another device.</p>'
    +'<textarea id="bk" spellcheck="false"></textarea><div class="row" style="margin-top:8px"><button onclick="showBk()">Show backup</button><button onclick="restore()">Restore from pasted text</button><button class="ghost" onclick="delBox()">Delete box</button></div></div></details>';
@@ -591,6 +591,7 @@ function dlCsv(){
   setTimeout(function(){URL.revokeObjectURL(u)},1000);exStatus(fltOn()?'Downloaded filtered list.':'Downloaded.');
 }
 function chg(i,d){var b=cur();b.cards.forEach(function(c){if(c.id==i)c.qty=Math.max(0,c.qty+d)});b.cards=b.cards.filter(function(c){return c.qty>0});save();render()}
+function clearBox(){var b=cur();if(!b)return;var n=0;b.cards.forEach(function(c){n+=c.qty});if(!n){exStatus('This box is already empty.');return}if(!confirm('Delete all '+n+' card'+(n==1?'':'s')+' from "'+b.name+'"? This can\u2019t be undone.'))return;b.cards=[];FL={cat:'',ty:'',cond:'',set:''};q='';save();render()}
 function rm(i){var b=cur();b.cards=b.cards.filter(function(c){return c.id!=i});save();render()}
 function cp(){var l=$('#lk');l.select();try{navigator.clipboard.writeText(l.value)}catch(e){try{document.execCommand('copy')}catch(e2){}}}
 function showBk(){$('#bk').value=JSON.stringify(cur())}
