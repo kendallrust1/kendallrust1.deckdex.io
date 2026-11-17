@@ -201,7 +201,7 @@ function list(){
   var hint=(srt=='vhi'||srt=='vlo')&&!b.cards.some(priced)?'<div class="note" style="margin:0 0 8px">No prices yet. Tap Update prices to sort by value.</div>':'';
   var fc=fltOn()?'<div class="note" style="margin:0 0 8px">Showing '+rows.length+' of '+b.cards.length+' cards (filters on)</div>':'';
   el.innerHTML=fc+hint+rows.map(function(c){
-    return '<div class="item">'+(c.img?'<img class="th" src="'+esc(c.img)+'" data-hi="'+esc(hiImg(c.img))+'" alt="'+esc(c.name)+'">':'')+'<div class="t"><b>'+esc(c.name)+'</b><small>'+esc([c.set,c.num&&'#'+c.num].filter(Boolean).join(' · '))+'</small>'+(priced(c)?' <small>· ~'+fmt(c.p*COND[c.cond])+' each</small>':'')+' <span class="chip">'+esc(c.cond)+'</span> '+(c.cat?'<span class="chip">'+esc(c.cat)+'</span> ':'')+(c.ty?'<span class="chip">'+esc(c.ty)+'</span> ':'')+prSel(c)+'</div>'
+    return '<div class="item">'+thumb(c)+'<div class="t"><b>'+esc(c.name)+'</b><small>'+esc([c.set,c.num&&'#'+c.num].filter(Boolean).join(' · '))+'</small>'+(priced(c)?' <small>· ~'+fmt(c.p*COND[c.cond])+' each</small>':'')+' <span class="chip">'+esc(c.cond)+'</span> '+(c.cat?'<span class="chip">'+esc(c.cat)+'</span> ':'')+(c.ty?'<span class="chip">'+esc(c.ty)+'</span> ':'')+prSel(c)+'</div>'
     +'<div class="qty"><button onclick="chg(\''+c.id+'\',-1)" aria-label="Fewer">−</button><b>'+c.qty+'</b><button onclick="chg(\''+c.id+'\',1)" aria-label="More">+</button></div>'
     +'<button class="ghost" onclick="rm(\''+c.id+'\')" aria-label="Remove">✕</button></div>'}).join('');
 }
@@ -234,13 +234,13 @@ function sortRows(rows){
 }
 async function fillTypes(){
   var b=cur();if(!b)return false;
-  var ids=[];b.cards.forEach(function(c){norm(c);if(c.api&&!c.cat&&!TRIED[c.api]&&ids.indexOf(c.api)<0)ids.push(c.api)});
+  var ids=[];b.cards.forEach(function(c){norm(c);if(c.api&&(!c.cat||c.tp==null)&&!TRIED[c.api]&&ids.indexOf(c.api)<0)ids.push(c.api)});
   ids.forEach(function(i){TRIED[i]=1});
   if(!ids.length)return false;
   var got={},qu=ids.slice();
-  await Promise.all([1,2,3,4,5].map(async function(){while(qu.length){var cid=qu.shift();try{var r=await fetch('https://api.tcgdex.net/v2/en/cards/'+encodeURIComponent(cid));if(r.ok){var d=detOf(await r.json());if(d.cat)got[cid]=d}}catch(e){}}}));
+  await Promise.all([1,2,3,4,5].map(async function(){while(qu.length){var cid=qu.shift();try{var r=await fetch('https://api.tcgdex.net/v2/en/cards/'+encodeURIComponent(cid));if(r.ok){var j=await r.json(),d=detOf(j);d.tm=tpOf(j);got[cid]=d}}catch(e){}}}));
   b=cur();if(!b)return false;
-  var ch=false;b.cards.forEach(function(c){if(c.api&&got[c.api]&&!c.cat){c.cat=got[c.api].cat;c.ty=got[c.api].ty;ch=true}});
+  var ch=false;b.cards.forEach(function(c){var g=c.api&&got[c.api];if(!g)return;if(!c.cat&&g.cat){c.cat=g.cat;c.ty=g.ty;ch=true}if(c.tp==null){c.tp=tpPick(g.tm,c.v);ch=true}});
   if(ch)save();
   return ch;
 }
@@ -312,8 +312,9 @@ function prSel(c){
 }
 function setPr(id,k){
   var b=cur();if(!b)return;
-  b.cards.forEach(function(c){if(c.id==id&&c.pv&&typeof c.pv[k]=='number'){c.v=k;c.p=c.pv[k]}});
+  b.cards.forEach(function(c){if(c.id==id&&c.pv&&typeof c.pv[k]=='number'){c.v=k;c.p=c.pv[k];if(c.api){delete c.tp;delete TRIED[c.api]}}});
   save();render();
+  var h=location.hash;fillTypes().then(function(ch){if(ch&&location.hash==h)list()});
 }
 function lastPriced(b){var m=0;b.cards.forEach(function(c){if(c.pt>m)m=c.pt});return m}
 async function priceBox(){
@@ -328,7 +329,7 @@ async function priceBox(){
       if(r.ok){
         var j=await r.json(),t=j.pricing&&j.pricing.tcgplayer,pv={};
         if(t)Object.keys(t).forEach(function(k){var v=t[k];if(v&&typeof v=='object'&&typeof v.marketPrice=='number')pv[k]=v.marketPrice});
-        if(Object.keys(pv).length)got[cid]=pv;var d=detOf(j);if(d.cat)gt[cid]=d;
+        if(Object.keys(pv).length)got[cid]=pv;var d=detOf(j);d.tm=tpOf(j);gt[cid]=d;
       }
     }catch(e){}
     n++;var p=$('#pst');if(p)p.textContent='Pricing '+n+' of '+ids.length+'…';
@@ -337,7 +338,7 @@ async function priceBox(){
   b=S.boxes[id];if(!b)return;
   b.cards.forEach(function(c){
     var pv=c.api&&got[c.api];
-    if(c.api&&gt[c.api]){c.cat=gt[c.api].cat;c.ty=gt[c.api].ty}
+    if(c.api&&gt[c.api]){if(gt[c.api].cat){c.cat=gt[c.api].cat;c.ty=gt[c.api].ty}c.tp=tpPick(gt[c.api].tm,c.v)}
     if(pv){c.pv=pv;var ks=prKeys(c),k=prPick(pv,c.v);if(k)c.v=k;c.p=pv[k||ks[0]];c.pt=Date.now()}
   });
   save();render();
@@ -524,13 +525,34 @@ async function impGo(){
 }
 // ---- bigger card images: hover preview (mouse) and tap to view full size ----
 function hiImg(u){return String(u||'').replace(/\/low\.(webp|png|jpg)$/,'/high.webp')}
+var TCGI='https://tcgplayer-cdn.tcgplayer.com/product/';
+// TCGplayer product ids come from the card details (variants_detailed[].thirdParty.tcgplayer), one per printing
+function tpOf(j){
+  var m={},any=0;
+  (j&&j.variants_detailed||[]).forEach(function(x){var id=x&&x.thirdParty&&x.thirdParty.tcgplayer;if(typeof id=='number'&&id>0){var t=String(x.type||'').toLowerCase();if(!m[t])m[t]=id;if(!any)any=id}});
+  if(!any&&j&&j.thirdParty&&typeof j.thirdParty.tcgplayer=='number')any=j.thirdParty.tcgplayer;
+  if(!any&&j&&j.pricing&&j.pricing.tcgplayer&&typeof j.pricing.tcgplayer.productId=='number')any=j.pricing.tcgplayer.productId;
+  m._=any;return m;
+}
+function tpPick(m,v){if(!m)return 0;var k=Object.keys(m).filter(function(x){return x!='_'});var hit=v&&k.filter(function(x){return x==v||(v=='reverse'?/reverse/.test(x):v=='holo'?/holo|foil/.test(x)&&!/reverse/.test(x):/normal|unlimited/.test(x))})[0];return(hit&&m[hit])||m.normal||m._||0}
+function imgs(c){
+  var lo=c.img||'',hi=lo?hiImg(lo):'';
+  if(c.tp>0)return{lo:TCGI+c.tp+'_200w.jpg',hi:TCGI+c.tp+'_in_1000x1000.jpg',lo2:lo,hi2:hi||lo};
+  return{lo:lo,hi:hi,lo2:'',hi2:lo};
+}
+function thumb(c){
+  var i=imgs(c);if(!i.lo)return'';
+  return'<img class="th" src="'+esc(i.lo)+'" data-hi="'+esc(i.hi)+'" data-hi2="'+esc(i.hi2)+'"'+(i.lo2?' data-lo2="'+esc(i.lo2)+'" onerror="thErr(this)"':'')+' alt="'+esc(c.name)+'">';
+}
+function thErr(t){var f=t.getAttribute('data-lo2');t.removeAttribute('onerror');t.onerror=null;t.removeAttribute('data-lo2');if(f){t.setAttribute('data-hi',t.getAttribute('data-hi2')||f);t.src=f}}
+function imgChain(im,list,done){var i=0;function next(){while(i<list.length&&!list[i])i++;if(i>=list.length){done&&done();return}im.src=list[i++]}im.onerror=next;next()}
 var ZM=null,ZT=null;
 function canHover(){try{return matchMedia('(hover:hover) and (pointer:fine)').matches}catch(e){return false}}
 function zoomEl(){if(!ZM){ZM=document.createElement('div');ZM.id='zoom';ZM.setAttribute('aria-hidden','true');ZM.innerHTML='<img alt="">';document.body.appendChild(ZM)}return ZM}
 function showZoom(t){
   var z=zoomEl(),im=z.firstChild,w=Math.min(280,Math.max(160,innerWidth*0.38)),hh=w*825/600,r=t.getBoundingClientRect();
   ZT=t;z.style.width=w+'px';z.style.backgroundImage='url("'+t.src.replace(/"/g,'%22')+'")';
-  im.style.visibility='hidden';im.onload=function(){im.style.visibility=''};im.onerror=function(){im.style.visibility='hidden'};im.src=t.getAttribute('data-hi');
+  im.style.visibility='hidden';im.onload=function(){im.style.visibility=''};imgChain(im,[t.getAttribute('data-hi'),t.getAttribute('data-hi2')],function(){im.style.visibility='hidden'});
   var x=r.right+14;if(x+w>innerWidth-8)x=r.left-14-w;if(x<8)x=Math.max(8,(innerWidth-w)/2);
   var y=Math.min(Math.max(8,r.top+r.height/2-hh/2),innerHeight-hh-8);
   z.style.left=x+'px';z.style.top=Math.max(8,y)+'px';z.style.display='block';
@@ -539,7 +561,7 @@ function hideZoom(){ZT=null;if(ZM)ZM.style.display='none'}
 function openLb(t){
   hideZoom();closeLb();
   var lb=document.createElement('div');lb.id='lb';lb.setAttribute('role','dialog');lb.setAttribute('aria-label',t.alt||'Card image');
-  lb.innerHTML='<img alt="'+esc(t.alt||'')+'">';var im=lb.firstChild;im.onerror=function(){if(im.src!=t.src)im.src=t.src};im.src=t.getAttribute('data-hi');
+  lb.innerHTML='<img alt="'+esc(t.alt||'')+'">';var im=lb.firstChild;imgChain(im,[t.getAttribute('data-hi'),t.getAttribute('data-hi2'),t.src]);
   lb.onclick=closeLb;document.body.appendChild(lb);
 }
 function closeLb(){var l=$('#lb');if(l)l.remove()}
