@@ -46,6 +46,13 @@ textarea{width:100%;min-height:110px;font:12px/1.4 ui-monospace,monospace;margin
 select.pr{padding:3px 6px;font-size:.8rem}
 .acct{font-size:.88rem;color:var(--mute)}
 .err{color:#ff8f87}
+button.danger{background:none;border-color:#ff8f87;color:#ff8f87}
+button.danger.solid{background:#ff8f87;color:#242423}
+button:disabled{opacity:.45;cursor:not-allowed;filter:none}
+.card.warn{border-color:#ff8f87}
+button.opt{background:none;color:var(--ink);border-color:var(--line);font-weight:500}
+button.opt[aria-checked="true"]{background:var(--acc);color:var(--acc-ink);border-color:var(--acc);font-weight:600}
+.gp{margin-bottom:12px}
 .th[data-hi]{cursor:zoom-in}
 #zoom{position:fixed;z-index:50;pointer-events:none;width:280px;aspect-ratio:600/825;border-radius:14px;background:var(--line) center/contain no-repeat;box-shadow:0 14px 44px rgba(0,0,0,.65);display:none;overflow:hidden}
 #zoom img{display:block;width:100%;height:100%;object-fit:contain}
@@ -75,23 +82,29 @@ function push(){if(!sb||!U)return;clearTimeout(pt);pt=setTimeout(doPush,800)}
 async function doPush(){
   if(!sb||!U)return;
   var rows=[];
-  Object.keys(S.boxes).forEach(function(i){var b=S.boxes[i];if(!CODE.test(i))return;if(!b.t)b.t=Date.now();if(b.t>(b.s||0))rows.push({user_id:U.id,id:i,name:b.name,cards:b.cards,updated_at:new Date(b.t).toISOString()})});
+  Object.keys(S.boxes).forEach(function(i){var b=S.boxes[i];if(!CODE.test(i))return;if(!b.t)b.t=Date.now();if(b.t>(b.s||0)){var row={user_id:U.id,id:i,name:b.name,cards:b.cards,updated_at:new Date(b.t).toISOString()};if(GCOL!==false)row.game=gameOf(b);rows.push(row)}});
   try{
     if(S.gone&&S.gone.length){var g=await sb.from('boxes').delete().in('id',S.gone);if(g.error)throw g.error;S.gone=[]}
-    if(rows.length){var r=await sb.from('boxes').upsert(rows,{onConflict:'user_id,id'});if(r.error)throw r.error;rows.forEach(function(x){S.boxes[x.id].s=Date.parse(x.updated_at)})}
+    if(rows.length){var r=await sb.from('boxes').upsert(rows,{onConflict:'user_id,id'});
+      if(r.error&&GCOL!==false&&/game/i.test(r.error.message||'')){GCOL=false;rows.forEach(function(x){delete x.game});r=await sb.from('boxes').upsert(rows,{onConflict:'user_id,id'})}
+      if(r.error)throw r.error;rows.forEach(function(x){S.boxes[x.id].s=Date.parse(x.updated_at)})}
     persist();setSt('Synced');
   }catch(e){setSt('Sync failed. Changes are kept on this device.')}
 }
 async function sync(){
   if(!sb||!U)return;setSt('Syncing…');
-  var r=await sb.from('boxes').select('id,name,cards,updated_at');
+  var r=GCOL===false?{error:{message:'game'}}:await sb.from('boxes').select('id,name,cards,updated_at,game');
+  if(r.error&&/game/i.test(r.error.message||'')){if(GCOL!==false)GCOL=false;r=await sb.from('boxes').select('id,name,cards,updated_at')}
+  else if(!r.error)GCOL=true;
   if(r.error){setSt('Sync failed. Changes are kept on this device.');return}
   var ch=false;
   (r.data||[]).forEach(function(w){
     if((S.gone||[]).indexOf(w.id)>-1)return;
     var t=Date.parse(w.updated_at),l=S.boxes[w.id];
-    if(!l||t>(l.t||0)){S.boxes[w.id]={name:w.name,cards:w.cards||[],t:t,s:t};ch=true}
+    if(!l||t>(l.t||0)){S.boxes[w.id]={name:w.name,cards:w.cards||[],t:t,s:t};var gm=(GAMES[w.game]&&w.game)||(l&&l.game);if(gm)S.boxes[w.id].game=gm;ch=true}
   });
+  var live={};(r.data||[]).forEach(function(w){live[w.id]=1});
+  Object.keys(S.boxes).forEach(function(i){var l=S.boxes[i];if(CODE.test(i)&&l.s&&!live[i]){delete S.boxes[i];ch=true;if(location.hash.slice(1)==i)location.hash=''}});
   persist();await doPush();
   if(ch)render();
 }
@@ -151,6 +164,15 @@ function priced(c){return typeof c.p=='number'&&COND[c.cond]!=null}
 function fmt(n){return '$'+n.toFixed(2)}
 function totals(b){var n=0,v=0,pc=0;b.cards.forEach(function(c){n+=c.qty;if(priced(c)){v+=c.p*COND[c.cond]*c.qty;pc++}});return{u:b.cards.length,t:n,v:v,pc:pc}}
 
+// ---- card games ----
+var GAMES={pokemon:'Pok\u00e9mon',mtg:'Magic: The Gathering'},GSHORT={pokemon:'Pok\u00e9mon',mtg:'Magic'},GCOL;
+function gameOf(b){if(b&&GAMES[b.game])return b.game;return b&&b.cards&&b.cards.some(function(c){return c.g=='mtg'})?'mtg':'pokemon'}
+function isM(){return gameOf(cur())=='mtg'}
+var NEWG='pokemon';try{NEWG=localStorage.getItem('pkbox:game')||'pokemon'}catch(e){}if(!GAMES[NEWG])NEWG='pokemon';
+function gamePick(sel,fn){return'<div class="row gp" role="radiogroup" aria-label="Card game">'+Object.keys(GAMES).map(function(k){return'<button type="button" class="opt grow" role="radio" aria-checked="'+(sel==k)+'" onclick="'+fn+'(\''+k+'\')">'+GAMES[k]+'</button>'}).join('')+'</div>'}
+function setNewG(k){NEWG=k;try{localStorage.setItem('pkbox:game',k)}catch(e){}var g=$('#gp');if(g)g.innerHTML=gamePick(NEWG,'setNewG')}
+function newGameBlock(){return'<label class="l">Card game</label><div id="gp">'+gamePick(NEWG,'setNewG')+'</div>'}
+function setBoxGame(k){var b=cur();if(!b||b.cards.length)return;b.game=k;NEWG=k;try{localStorage.setItem('pkbox:game',k)}catch(e){}FL={cat:'',ty:'',cond:'',set:''};save();render()}
 function render(){view();bar()}
 function view(){
   var id=location.hash.slice(1),app=$('#app');if(id.indexOf('=')>-1)id='';want='';
@@ -163,34 +185,39 @@ function view(){
 function home(app){
   var ids=Object.keys(S.boxes),h='<h1>Register a Box</h1><p class="sub">Scan the tag on your box to register it and start tracking its cards.</p>';
   h+='<div class="card"><label class="l">Have a box code?</label><div class="row"><input id="bc" class="grow" placeholder="e.g. box-3f9a1c0d2e4b"><button onclick="goCode()">Open</button></div></div>';
+  if(FLASH)h='<div class="card acct" role="status">'+esc(FLASH)+'</div>'+h;
   if(!ids.length)h+='<div class="empty">No boxes yet. Scan the tag on your box to register it.</div>';
   ids.forEach(function(i){var b=S.boxes[i],t=totals(b);
-    h+='<a class="card boxlink" href="#'+i+'"><span><b>'+esc(b.name)+'</b><br><small>'+t.t+' cards · '+t.u+' unique'+(t.pc?' · ~'+fmt(t.v):'')+'</small></span><span class="chip">'+i+'</span></a>'});
+    h+='<a class="card boxlink" href="#'+i+'"><span><b>'+esc(b.name)+'</b><br><small>'+GSHORT[gameOf(b)]+' · '+t.t+' cards · '+t.u+' unique'+(t.pc?' · ~'+fmt(t.v):'')+'</small></span><span class="chip">'+i+'</span></a>'});
   app.innerHTML=h;
 }
-function makeBox(id){var n=$('#bn').value.trim()||id;S.boxes[id]={name:n,cards:[],t:Date.now()};save();render()}
+function makeBox(id){var n=$('#bn').value.trim()||id;S.boxes[id]={name:n,game:NEWG,cards:[],t:Date.now()};save();render()}
 
 function boxView(app,id,b){
-  var t=totals(b),h='<a class="back" href="#">← All boxes</a><h1>'+esc(b.name)+'</h1><p class="sub"><span class="chip">'+id+'</span></p>';
+  var t=totals(b),h='<a class="back" href="#">← All boxes</a><h1>'+esc(b.name)+'</h1><p class="sub"><span class="chip">'+GAMES[gameOf(b)]+'</span> <span class="chip">'+id+'</span></p>';
+  if(!b.cards.length)h+='<div class="card"><label class="l">Card game for this box (you can change it while the box is empty)</label>'+gamePick(gameOf(b),'setBoxGame')+'</div>';
+  var mg=gameOf(b)=='mtg';
   h+='<div class="stats"><div class="stat"><b>'+t.t+'</b><span>total cards</span></div><div class="stat"><b>'+t.u+'</b><span>unique</span></div><div class="stat"><b>'+(t.pc?fmt(t.v):'—')+'</b><span>est. value'+(t.pc&&t.pc<t.u?' ('+t.pc+' of '+t.u+' priced)':'')+'</span></div></div>';
   var lp=lastPriced(b);
-  h+='<div class="row" style="margin:-6px 0 4px;align-items:center"><button onclick="priceBox()">Update prices</button><span class="note" id="pst" style="margin:0">'+(lp?'Prices updated '+new Date(lp).toLocaleDateString():'')+'</span></div><p class="note" style="margin:4px 0 14px">Estimate uses the TCGplayer market price (USD) for the printing chosen on each card (normal by default; pick holo or reverse after updating prices), adjusted for condition (LP 85%, MP 65%, HP 45%, DMG 25%). Graded cards and hand-added cards are not priced.</p>';
+  h+='<div class="row" style="margin:-6px 0 4px;align-items:center"><button onclick="priceBox()">Update prices</button><span class="note" id="pst" style="margin:0">'+(lp?'Prices updated '+new Date(lp).toLocaleDateString():'')+'</span></div><p class="note" style="margin:4px 0 14px">'+(mg?'Estimate uses the TCGplayer price (USD) reported by Scryfall for the finish chosen on each card (non-foil by default; pick foil or etched where it exists)':'Estimate uses the TCGplayer market price (USD) for the printing chosen on each card (normal by default; pick holo or reverse after updating prices)')+', adjusted for condition (LP 85%, MP 65%, HP 45%, DMG 25%). Graded cards and hand-added cards are not priced.</p>';
   h+='<div class="card"><label class="l">Add a card</label><form onsubmit="return addCard(event)"><div class="row">'
    +'<input id="cn" class="grow" placeholder="Search card name…" required autocomplete="off" oninput="srch(this.value)">'
-   +'<input id="cs" class="grow" placeholder="Set (e.g. Obsidian Flames)">'
+   +'<input id="cs" class="grow" placeholder="Set (e.g. '+(mg?'Bloomburrow':'Obsidian Flames')+')">'
    +'<input id="cx" class="sm" placeholder="No.">'
    +'<input id="cq" class="sm" type="number" min="1" value="1" aria-label="Quantity">'
    +'<select id="cc"><option>NM</option><option>LP</option><option>MP</option><option>HP</option><option>DMG</option><option>Graded</option></select>'
    +'<button class="pri" type="submit">Add manually</button></div></form><div id="res"></div>'
    +'<div class="row" style="margin-top:10px;align-items:center"><span class="note" style="margin:0">Have your collection in another app?</span><button onclick="impPick()">Import CSV</button><input type="file" id="impf" accept=".csv,.tsv,.txt,text/csv,text/tab-separated-values" hidden onchange="impFile(this)"></div></div>';
   h+='<div id="imp"></div>';
-  h+='<div class="row" style="margin-bottom:12px"><input id="sq" class="grow" placeholder="Search this box…" value="'+esc(q)+'" oninput="q=this.value;window.list()"><select id="so" aria-label="Sort cards" onchange="setSort(this.value)">'+SORTS.map(function(o){return'<option value="'+o[0]+'"'+(o[0]==srt?' selected':'')+'>'+o[1]+'</option>'}).join('')+'</select></div>';
+  h+='<div class="row" style="margin-bottom:12px"><input id="sq" class="grow" placeholder="Search this box…" value="'+esc(q)+'" oninput="q=this.value;window.list()"><select id="so" aria-label="Sort cards" onchange="setSort(this.value)">'+SORTS.map(function(o){return'<option value="'+o[0]+'"'+(o[0]==srt?' selected':'')+'>'+(mg&&MSORT[o[0]]||o[1])+'</option>'}).join('')+'</select></div>';
   h+='<div class="row" id="fb" style="margin:-4px 0 12px;align-items:center"></div>';
   h+='<div class="card" id="list"></div>';
   h+='<div class="row" style="align-items:center;margin:-2px 0 12px"><button onclick="copyList()">Copy list</button><button onclick="dlCsv()">Download CSV</button><button class="ghost" onclick="clearBox()">Delete all cards</button><span class="note" id="exs" style="margin:0"></span></div>';
-  h+='<details><summary>Tag link, backup &amp; delete</summary><div class="card" style="margin-top:10px"><label class="l">Link to this box</label><div class="row"><input id="lk" class="grow" readonly value="'+esc(location.href.split('#')[0]+'#'+id)+'" onfocus="this.select()"><button onclick="cp()">Copy</button></div>'
+  var tagBox=CODE.test(id)&&!!sb;
+  h+='<details'+(DEACT?' open':'')+'><summary>Tag link, backup &amp; '+(tagBox?'deactivate':'delete')+'</summary><div class="card" style="margin-top:10px"><label class="l">Link to this box</label><div class="row"><input id="lk" class="grow" readonly value="'+esc(location.href.split('#')[0]+'#'+id)+'" onfocus="this.select()"><button onclick="cp()">Copy</button></div>'
    +'<p class="note">Cards are saved in this browser on this device. To move them, copy the backup text below and paste it into the same box on another device.</p>'
-   +'<textarea id="bk" spellcheck="false"></textarea><div class="row" style="margin-top:8px"><button onclick="showBk()">Show backup</button><button onclick="restore()">Restore from pasted text</button><button class="ghost" onclick="delBox()">Delete box</button></div></div></details>';
+   +'<textarea id="bk" spellcheck="false"></textarea><div class="row" style="margin-top:8px"><button onclick="showBk()">Show backup</button><button onclick="restore()">Restore from pasted text</button>'+(tagBox?'':'<button class="ghost" onclick="delBox()">Delete box</button>')+'</div></div>'
+   +(tagBox?'<div class="card warn" style="margin-top:10px">'+(DEACT?deactPanel(b):'<label class="l">Deactivate box</label><p class="note" style="margin:0 0 10px">Remove this box from your account, for example if you\u2019re giving it away or selling it.</p><button class="danger" onclick="deactOpen()">Deactivate box\u2026</button>')+'</div>':'')+'</details>';
   app.innerHTML=h;filtBar();list();impDraw();
   var hh=location.hash;fillTypes().then(function(ch){if(ch&&location.hash==hh){filtBar();list()}});
 }
@@ -209,18 +236,20 @@ function cur(){return S.boxes[location.hash.slice(1)]}
 function addCard(e){
   e.preventDefault();var b=cur();if(!b)return false;
   var c={id:Date.now().toString(36)+Math.random().toString(36).slice(2,5),name:$('#cn').value.trim(),set:$('#cs').value.trim(),num:$('#cx').value.trim(),qty:Math.max(1,parseInt($('#cq').value)||1),cond:$('#cc').value};
-  if(!c.name)return false;
+  if(!c.name)return false;if(gameOf(b)=='mtg')c.g='mtg';
   var m=b.cards.filter(function(x){return x.name.toLowerCase()==c.name.toLowerCase()&&x.set.toLowerCase()==c.set.toLowerCase()&&x.num==c.num&&x.cond==c.cond})[0];
   if(m)m.qty+=c.qty;else b.cards.unshift(c);
   save();render();return false;
 }
 
+var MSORT={cat:'Card type (Creature, Instant, Land…)',type:'Color'};
+var MCATS=['Creature','Planeswalker','Battle','Instant','Sorcery','Artifact','Enchantment','Land','Other'];
 var SORTS=[['new','Newest added'],['az','Name A–Z'],['za','Name Z–A'],['cat','Category (Pokémon / Trainer / Energy)'],['type','Pokémon type'],['vhi','Value: high to low'],['vlo','Value: low to high']];
 var srt='new';try{srt=localStorage.getItem('pkbox:sort')||'new'}catch(e){}
 if(!SORTS.some(function(o){return o[0]==srt}))srt='new';
 function detOf(j){var c=j.category,p=(c=='Pokemon'||c=='Pok\u00e9mon');return{cat:p?'Pok\u00e9mon':(c||''),ty:p?((j.types&&j.types[0])||''):''}}
-function norm(c){if(!c.cat&&c.ty){if(c.ty=='Trainer'||c.ty=='Energy'){c.cat=c.ty;c.ty=''}else c.cat='Pok\u00e9mon'}}
-function catRank(c){var t=c.cat;return t=='Pok\u00e9mon'?0:t=='Trainer'?1:t=='Energy'?2:3}
+function norm(c){if(c.g=='mtg')return;if(!c.cat&&c.ty){if(c.ty=='Trainer'||c.ty=='Energy'){c.cat=c.ty;c.ty=''}else c.cat='Pok\u00e9mon'}}
+function catRank(c){var t=c.cat;if(c.g=='mtg'){var i=MCATS.indexOf(t);return i<0?MCATS.length:i}return t=='Pok\u00e9mon'?0:t=='Trainer'?1:t=='Energy'?2:3}
 function cv(c){return priced(c)?c.p*COND[c.cond]:null}
 function cmpName(a,b){return a.name.localeCompare(b.name,undefined,{sensitivity:'base',numeric:true})||String(a.set).localeCompare(String(b.set))||String(a.num).localeCompare(String(b.num),undefined,{numeric:true})}
 function sortRows(rows){
@@ -234,6 +263,7 @@ function sortRows(rows){
 }
 async function fillTypes(){
   var b=cur();if(!b)return false;
+  if(gameOf(b)=='mtg')return false;
   var ids=[];b.cards.forEach(function(c){norm(c);if(c.api&&(!c.cat||c.tp==null)&&!TRIED[c.api]&&ids.indexOf(c.api)<0)ids.push(c.api)});
   ids.forEach(function(i){TRIED[i]=1});
   if(!ids.length)return false;
@@ -257,13 +287,13 @@ function filtBar(){
   var el=$('#fb'),b=cur();if(!el||!b)return;
   b.cards.forEach(norm);
   function uniq(fn){var o={};b.cards.forEach(function(c){var v=fn(c);if(v)o[v]=1});return Object.keys(o)}
-  var cats=['Pokémon','Trainer','Energy'].filter(function(x){return b.cards.some(function(c){return c.cat==x})});
+  var mg=gameOf(b)=='mtg',cats=(mg?MCATS:['Pokémon','Trainer','Energy']).filter(function(x){return b.cards.some(function(c){return c.cat==x})});
   var tys=uniq(function(c){return c.ty}).sort();
   var cds=Object.keys(COND).concat(['Graded']).filter(function(x){return b.cards.some(function(c){return c.cond==x})});
   var sets=uniq(function(c){return c.set}).sort();
   var opts={cat:cats,ty:tys,cond:cds,set:sets};
   Object.keys(opts).forEach(function(k){if(FL[k]&&opts[k].indexOf(FL[k])<0)FL[k]=''});
-  var lab={cat:'All categories',ty:'All Pokémon types',cond:'All conditions',set:'All sets'},h='';
+  var lab={cat:mg?'All card types':'All categories',ty:mg?'All colors':'All Pokémon types',cond:'All conditions',set:'All sets'},h='';
   Object.keys(opts).forEach(function(k){
     if(!opts[k].length)return;
     h+='<select class="grow" aria-label="Filter: '+esc(lab[k])+'" onchange="setFilter(\''+k+'\',this.value)"><option value="">'+esc(lab[k])+'</option>'+opts[k].map(function(v){return'<option value="'+esc(v)+'"'+(FL[k]==v?' selected':'')+'>'+esc(v)+'</option>'}).join('')+'</select>';
@@ -278,9 +308,11 @@ function setsMap(){
   if(SETS)return Promise.resolve(SETS);
   return fetch('https://api.tcgdex.net/v2/en/sets').then(function(r){return r.json()}).then(function(a){SETS={};a.forEach(function(s){SETS[s.id]=s.name});return SETS}).catch(function(){SETS={};return SETS});
 }
+var SQN=0;
 function srch(v){
   clearTimeout(tm);var el=$('#res');if(!el)return;
-  v=v.trim();if(v.length<2){el.innerHTML='';return}
+  v=v.trim();if(v.length<2){el.innerHTML='';SQN++;return}
+  if(isM())return srchM(v,el);
   tm=setTimeout(function(){
     el.innerHTML='<div class="note">Searching…</div>';
     var get=fetch('https://api.tcgdex.net/v2/en/cards?name='+encodeURIComponent(v)).then(function(r){if(r.status==404)return[];if(!r.ok)throw 0;return r.json()});
@@ -293,32 +325,36 @@ function srch(v){
 function pick(i){
   var c=RES[i],b=cur();if(!c||!b)return;
   var cond=$('#cc').value,qty=Math.max(1,parseInt($('#cq').value)||1);
+  if(c.det){addM(b,c.det,qty,cond,'');save();render();return}
   var m=b.cards.filter(function(x){return x.api==c.id&&x.cond==cond&&!x.v})[0];
   if(m)m.qty+=qty;else b.cards.unshift({id:Date.now().toString(36)+Math.random().toString(36).slice(2,5),api:c.id,name:c.name,set:c.set,num:c.number,qty:qty,cond:cond,img:c.img});
   save();render();
   var h=location.hash;fillTypes().then(function(ch){if(ch&&location.hash==h)render()});
 }
-var PR_ORDER=['normal','holo','reverse'],PR_NAME={normal:'Normal',holo:'Holo',reverse:'Reverse holo'};
+var PR_ORDER=['normal','holo','reverse','nonfoil','foil','etched'],PR_NAME={normal:'Normal',holo:'Holo',reverse:'Reverse holo',nonfoil:'Non-foil',foil:'Foil',etched:'Etched foil'};
 function prKeys(c){
   if(!c.pv)return[];
   return Object.keys(c.pv).filter(function(x){return typeof c.pv[x]=='number'}).sort(function(a,b){var i=PR_ORDER.indexOf(a),j=PR_ORDER.indexOf(b);return(i<0?9:i)-(j<0?9:j)});
 }
 function prName(k){return PR_NAME[k]||k}
 function prSel(c){
-  var ks=prKeys(c);if(!ks.length)return'';
+  var ks=prKeys(c);
+  if(c.g=='mtg'&&c.v&&ks.indexOf(c.v)<0)return'<span class="chip">'+esc(prName(c.v))+' · no price</span>';
+  if(!ks.length)return'';
   var sel=c.v&&ks.indexOf(c.v)>-1?c.v:ks[0];
   if(ks.length==1)return'<span class="chip">'+esc(prName(ks[0]))+'</span>';
   return'<select class="pr" aria-label="Printing" onchange="setPr(\''+c.id+'\',this.value)">'+ks.map(function(k){return'<option value="'+esc(k)+'"'+(k==sel?' selected':'')+'>'+esc(prName(k))+'</option>'}).join('')+'</select>';
 }
 function setPr(id,k){
   var b=cur();if(!b)return;
-  b.cards.forEach(function(c){if(c.id==id&&c.pv&&typeof c.pv[k]=='number'){c.v=k;c.p=c.pv[k];if(c.api){delete c.tp;delete TRIED[c.api]}}});
+  b.cards.forEach(function(c){if(c.id==id&&c.pv&&typeof c.pv[k]=='number'){c.v=k;c.p=c.pv[k];if(c.api&&c.g!='mtg'){delete c.tp;delete TRIED[c.api]}}});
   save();render();
   var h=location.hash;fillTypes().then(function(ch){if(ch&&location.hash==h)list()});
 }
 function lastPriced(b){var m=0;b.cards.forEach(function(c){if(c.pt>m)m=c.pt});return m}
 async function priceBox(){
   var id=location.hash.slice(1),b=S.boxes[id];if(!b)return;
+  if(gameOf(b)=='mtg')return priceBoxM(id);
   var ids=[],ps=$('#pst');
   b.cards.forEach(function(c){if(c.api&&ids.indexOf(c.api)<0)ids.push(c.api)});
   if(!ids.length){if(ps)ps.textContent='Only cards added through search can be priced.';return}
@@ -353,19 +389,23 @@ function prPick(pv,v){
 }
 // ---- CSV import from other collection apps ----
 var IMP=null;
-var IMF=[['name','Card name'],['set','Set'],['num','Number'],['qty','Quantity'],['cond','Condition'],['pr','Printing']];
+var IMF0=[['name','Card name'],['set','Set'],['num','Number'],['qty','Quantity'],['cond','Condition'],['pr','Printing']],IMFM=IMF0.concat([['code','Set code'],['sid','Scryfall ID']]),IMF=IMF0;
 var IMA={
   name:['name','cardname','productname','card','cardtitle','title','product','pokemon','pokemonname'],
   set:['set','setname','expansion','expansionname','edition','groupname','setfullname','settitle'],
   num:['number','cardnumber','collectornumber','setnumber','localid','cardno','no','num','nr'],
   qty:['quantity','qty','count','totalquantity','havequantity','ownedquantity','owned','copies','amount','addtoquantity'],
   cond:['condition','cond','cardcondition','grade'],
-  pr:['printing','variant','printingtype','printtype','cardvariant','finish','foil','foiltype','version']
+  pr:['printing','variant','printingtype','printtype','cardvariant','finish','foil','foiltype','version'],
+  code:['setcode','editioncode','code','setid','setabbreviation','expansioncode'],
+  sid:['scryfallid','scryfalluuid','scryfallcardid','scryfall']
 };
 function hk(h){h=String(h||'').trim();return h=='#'?'number':h.toLowerCase().replace(/[^a-z0-9]+/g,'')}
 function impDetect(head){
+  IMF=isM()?IMFM:IMF0;
   var ks=head.map(hk),used={},m={};
-  IMF.forEach(function(f){m[f[0]]=-1});
+  if(IMF===IMFM)[['sid'],['code']].forEach(function(f){IMA[f[0]].some(function(a){for(var i=0;i<ks.length;i++)if(ks[i]==a){m[f[0]]=i;used[i]=1;return true}return false})});
+  IMF.forEach(function(f){if(m[f[0]]==null)m[f[0]]=-1});
   [0,1].forEach(function(pass){IMF.forEach(function(f){
     var k=f[0];if(m[k]>-1)return;
     IMA[k].some(function(a){
@@ -424,7 +464,9 @@ function impItems(){
     if(m.qty>-1&&!qs)qty=1;
     if(!(qty>0)){skip++;return}
     var cs=g('cond');
-    out.push({name:name,set:g('set'),num:num,qty:qty,cond:impCond(cs,IMP.def),pr:impPr(g('pr'))||impPrFromCond(cs)});
+    var pr=impPr(g('pr'))||impPrFromCond(cs);
+    if(IMP.mtg){var ps=(g('pr')+' '+cs).toLowerCase();pr=/etched/.test(ps)?'etched':pr=='holo'||pr=='reverse'?'foil':pr=='normal'?'nonfoil':''}
+    out.push({name:name,set:g('set'),num:num,qty:qty,cond:impCond(cs,IMP.def),pr:pr,code:g('code'),sid:g('sid')});
   });
   IMP.skip=skip;return out;
 }
@@ -442,7 +484,7 @@ function impLoad(fn,txt){
   var rows=parseCSV(txt),hi=0;
   for(var i=0;i<Math.min(10,rows.length);i++)if(impDetect(rows[i]).name>-1){hi=i;break}
   if(rows.length<hi+2){IMP={msg:'No cards were found in '+fn+'. Make sure it is a CSV export with a header row.',err:1};impDraw();return}
-  IMP={file:fn,head:rows[hi],rows:rows.slice(hi+1),map:impDetect(rows[hi]),def:'NM',look:true,box:location.hash.slice(1)};
+  IMP={file:fn,head:rows[hi],rows:rows.slice(hi+1),map:impDetect(rows[hi]),def:'NM',look:true,box:location.hash.slice(1),mtg:isM()};
   impDraw();
   var e=$('#imp');if(e&&e.scrollIntoView)e.scrollIntoView({behavior:'smooth',block:'start'});
 }
@@ -496,16 +538,16 @@ async function impMatch(items,prog){
   });
   return hit;
 }
-function impAdd(b,it){
+function impAdd(b,it,g){
   var m=b.cards.filter(function(x){
     if(x.cond!=it.cond||(x.v||'')!=(it.pr||''))return false;
     if(it.api)return x.api==it.api;
     return !x.api&&x.name.toLowerCase()==it.name.toLowerCase()&&(x.set||'').toLowerCase()==(it.set||'').toLowerCase()&&(x.num||'')==(it.num||'');
   })[0];
   if(m){m.qty+=it.qty;return}
-  var c={id:Date.now().toString(36)+Math.random().toString(36).slice(2,7),name:it.name,set:it.set||'',num:it.num||'',qty:it.qty,cond:it.cond};
+  var c={id:Date.now().toString(36)+Math.random().toString(36).slice(2,7),name:it.name,set:it.set||(g?String(it.code||'').toUpperCase():'')||'',num:it.num||'',qty:it.qty,cond:it.cond};
   if(it.api){c.api=it.api;if(it.img)c.img=it.img}
-  if(it.pr)c.v=it.pr;
+  if(it.pr)c.v=it.pr;if(g)c.g=g;
   b.cards.unshift(c);
 }
 async function impGo(){
@@ -514,14 +556,102 @@ async function impGo(){
   IMP.busy=true;impDraw();
   function st(t){var e=$('#imps');if(e)e.textContent=t}
   var hit=0;
-  if(IMP.look){st('Matching cards…');try{hit=await impMatch(items,function(d,n){st('Matching cards… '+d+' of '+n)})}catch(e){}}
+  if(IMP.look){st('Matching cards…');try{hit=await (IMP.mtg?impMatchM:impMatch)(items,function(d,n){st('Matching cards… '+d+' of '+n)})}catch(e){}}
   var b=S.boxes[bid];if(!b){IMP=null;return}
-  var n=0;for(var i=items.length-1;i>=0;i--){impAdd(b,items[i]);n+=items[i].qty}
+  var n=0;for(var i=items.length-1;i>=0;i--){if(IMP.mtg){if(items[i].det)addM(b,items[i].det,items[i].qty,items[i].cond,items[i].pr,true);else impAdd(b,items[i],'mtg')}else impAdd(b,items[i]);n+=items[i].qty}
   save();
   var msg='Imported '+n+' card'+(n==1?'':'s')+'.';
-  if(IMP&&IMP.look)msg+=hit==items.length?' All of them were matched, so tap Update prices to get their values.':' '+hit+' of '+items.length+' were matched to the card database'+(hit?' (tap Update prices to get their values)':'')+'. The rest were added by hand and won’t be priced.';
+  var ptip=IMP&&IMP.mtg?'':' (tap Update prices to get their values)';
+  if(IMP&&IMP.look)msg+=hit==items.length?(IMP.mtg?' All of them were matched and priced.':' All of them were matched, so tap Update prices to get their values.'):' '+hit+' of '+items.length+' were matched to the card database'+(hit?ptip:'')+'. The rest were added by hand and won’t be priced.';
   if(location.hash.slice(1)==bid){IMP={msg:msg,box:bid};render()}else IMP=null;
   var h=location.hash;fillTypes().then(function(ch){if(ch&&location.hash==h){filtBar();list()}});
+}
+// ---- Magic: The Gathering via Scryfall (https://scryfall.com/docs/api) ----
+// Scryfall asks for an Accept header, the browser's own User-Agent, and no more than 10 requests/second
+// (2/second for search and collection). Requests are spaced out to stay under those limits.
+var SFU='https://api.scryfall.com',SFT={slow:0,fast:0};
+function sf(path,opt,slow,retry){
+  var k=slow?'slow':'fast',gap=slow?550:120,now=Date.now(),at=Math.max(now,SFT[k]);SFT[k]=at+gap;
+  opt=opt||{};var hd={Accept:'application/json;q=0.9,*/*;q=0.8'};if(opt.headers)Object.keys(opt.headers).forEach(function(x){hd[x]=opt.headers[x]});
+  var o={method:opt.method||'GET',headers:hd};if(opt.body)o.body=opt.body;
+  return new Promise(function(r){setTimeout(r,at-now)}).then(function(){return fetch(SFU+path,o)}).then(function(r){
+    if(r.status==429&&!retry){SFT[k]=Date.now()+1500;return sf(path,opt,slow,1)}return r});
+}
+var MCN={W:'White',U:'Blue',B:'Black',R:'Red',G:'Green'};
+function sfDet(j){
+  var f0=(j.card_faces&&j.card_faces[0])||{},u=j.image_uris||f0.image_uris||{};
+  var tl=String(j.type_line||f0.type_line||'').split('//')[0];
+  var cat=MCATS.filter(function(t){return tl.indexOf(t)>-1})[0]||'Other';
+  var cols=j.colors||f0.colors||[],ty=cols.length>1?'Multicolor':cols.length?(MCN[cols[0]]||cols[0]):'Colorless';
+  var pr=j.prices||{},pv={};[['usd','nonfoil'],['usd_foil','foil'],['usd_etched','etched']].forEach(function(a){if(pr[a[0]]!=null){var n=parseFloat(pr[a[0]]);if(!isNaN(n))pv[a[1]]=n}});
+  return{api:j.id,name:j.name,set:j.set_name||'',sc:j.set||'',num:j.collector_number||'',img:u.small||u.normal||'',imh:u.png||u.large||u.normal||'',cat:cat,ty:ty,pv:pv,faces:(j.card_faces||[]).map(function(x){return x.name})};
+}
+function addM(b,d,qty,cond,want,push){
+  var ks=Object.keys(d.pv).sort(function(a,c){return PR_ORDER.indexOf(a)-PR_ORDER.indexOf(c)}),v=want||ks[0]||'';
+  var m=b.cards.filter(function(x){return x.api==d.api&&x.cond==cond&&(x.v||'')==v})[0];
+  if(m){m.qty+=qty;return}
+  var c={id:Date.now().toString(36)+Math.random().toString(36).slice(2,7),g:'mtg',api:d.api,name:d.name,set:d.set,sc:d.sc,num:d.num,qty:qty,cond:cond,img:d.img,imh:d.imh,cat:d.cat,ty:d.ty};
+  if(ks.length){c.pv=d.pv;c.v=v;if(d.pv[v]!=null)c.p=d.pv[v];c.pt=Date.now()}else if(v)c.v=v;
+  b.cards.unshift(c);
+}
+function srchM(v,el){
+  var n=++SQN;
+  tm=setTimeout(function(){
+    el.innerHTML='<div class="note">Searching…</div>';
+    sf('/cards/search?unique=prints&order=released&dir=desc&q='+encodeURIComponent(v+' game:paper'),null,true).then(function(r){if(r.status==404)return{data:[]};if(!r.ok)throw 0;return r.json()}).then(function(j){
+      if(n!=SQN)return;
+      RES=(j.data||[]).slice(0,30).map(function(c){var d=sfDet(c);return{id:d.api,name:d.name,number:d.num,set:d.set,img:d.img,det:d}});
+      el.innerHTML=RES.length?RES.map(function(c,i){var d=c.det,pk=Object.keys(d.pv);return '<div class="item">'+(c.img?'<img class="th" src="'+esc(c.img)+'" data-hi="'+esc(d.imh)+'" data-hi2="'+esc(c.img)+'" alt="'+esc(c.name)+'" loading="lazy">':'')+'<div class="t"><b>'+esc(c.name)+'</b><small>'+esc(c.set)+' ('+esc(d.sc.toUpperCase())+') · #'+esc(c.number)+(pk.length?' · ~'+fmt(d.pv[pk.sort(function(a,b){return PR_ORDER.indexOf(a)-PR_ORDER.indexOf(b)})[0]]):'')+'</small></div><button class="pri" onclick="pick('+i+')">Add</button></div>'}).join('')
+        +((j.total_cards||0)>RES.length?'<div class="note">Showing the newest '+RES.length+' of '+j.total_cards+' printings. To narrow it down, add a set code, e.g. <i>'+esc(v)+' e:'+esc((RES[0].det.sc||'m21'))+'</i>.</div>':'')
+        :'<div class="note">No matches. You can add it by hand instead.</div>';
+    }).catch(function(){if(n==SQN)el.innerHTML='<div class="note">Search is unavailable right now. You can still add cards by hand.</div>'});
+  },350);
+}
+async function sfCollection(ids,prog){
+  var out=[],batches=Math.ceil(ids.length/75);
+  for(var i=0;i<ids.length;i+=75){
+    var r=await sf('/cards/collection',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({identifiers:ids.slice(i,i+75)})},true);
+    if(!r.ok)throw new Error('collection '+r.status);
+    var j=await r.json();out=out.concat(j.data||[]);if(prog)prog(i/75+1,batches);
+  }
+  return out;
+}
+async function priceBoxM(id){
+  var b=S.boxes[id],ps=$('#pst'),ids=[];
+  b.cards.forEach(function(c){if(c.api&&ids.indexOf(c.api)<0)ids.push(c.api)});
+  if(!ids.length){if(ps)ps.textContent='Only cards added through search can be priced.';return}
+  var got={};
+  try{(await sfCollection(ids.map(function(x){return{id:x}}),function(d,n){var p=$('#pst');if(p)p.textContent='Pricing… '+Math.min(ids.length,d*75)+' of '+ids.length})).forEach(function(j){got[j.id]=sfDet(j)})}
+  catch(e){var p=$('#pst');if(p)p.textContent='Prices are unavailable right now. Please try again later.';return}
+  b=S.boxes[id];if(!b)return;
+  b.cards.forEach(function(c){var d=c.api&&got[c.api];if(!d)return;
+    c.cat=d.cat;c.ty=d.ty;c.img=d.img||c.img;c.imh=d.imh||c.imh;
+    if(Object.keys(d.pv).length){c.pv=d.pv;var ks=prKeys(c);if(!c.v)c.v=ks[0];if(d.pv[c.v]!=null)c.p=d.pv[c.v];else delete c.p;c.pt=Date.now()}});
+  save();render();
+}
+var MSETS=null;
+function mSets(){
+  if(MSETS)return Promise.resolve(MSETS);
+  return sf('/sets').then(function(r){return r.ok?r.json():{data:[]}}).then(function(j){MSETS={};(j.data||[]).forEach(function(s){MSETS[nk(s.code)]=s.code;if(!MSETS[nk(s.name)])MSETS[nk(s.name)]=s.code});return MSETS}).catch(function(){MSETS={};return MSETS});
+}
+async function impMatchM(items,prog){
+  var sets=await mSets(),ids=[],seen={};
+  function code(s){return s?sets[nk(s)]||'':''}
+  items.forEach(function(it){
+    var c=code(it.code)||code(it.set),nm=baseName(it.name.split(' // ')[0])||it.name,id;
+    if(/^[0-9a-f-]{36}$/i.test(it.sid||''))id={id:it.sid.toLowerCase()};
+    else if(c&&it.num)id={set:c,collector_number:String(it.num).replace(/^0+(?=\d)/,'')};
+    else if(c)id={name:nm,set:c};
+    else id={name:nm};
+    it.idf=id;var k=JSON.stringify(id);if(!seen[k]){seen[k]=1;ids.push(id)}
+  });
+  var res=await sfCollection(ids,function(d,n){prog(d,n)}),by={};
+  res.forEach(function(j){var d=sfDet(j);by['id:'+j.id]=d;by['sn:'+j.set+'|'+String(j.collector_number).toLowerCase()]=d;
+    [j.name].concat(d.faces).forEach(function(n){by['ns:'+nk(n)+'|'+j.set]=by['ns:'+nk(n)+'|'+j.set]||d;by['n:'+nk(n)]=by['n:'+nk(n)]||d})});
+  var hit=0;
+  items.forEach(function(it){var f=it.idf,d=f.id?by['id:'+f.id]:f.collector_number?by['sn:'+f.set+'|'+f.collector_number.toLowerCase()]:f.set?by['ns:'+nk(f.name)+'|'+f.set]:by['n:'+nk(f.name)];
+    if(d){it.det=d;hit++}});
+  return hit;
 }
 // ---- bigger card images: hover preview (mouse) and tap to view full size ----
 function hiImg(u){return String(u||'').replace(/\/low\.(webp|png|jpg)$/,'/high.webp')}
@@ -536,6 +666,7 @@ function tpOf(j){
 }
 function tpPick(m,v){if(!m)return 0;var k=Object.keys(m).filter(function(x){return x!='_'});var hit=v&&k.filter(function(x){return x==v||(v=='reverse'?/reverse/.test(x):v=='holo'?/holo|foil/.test(x)&&!/reverse/.test(x):/normal|unlimited/.test(x))})[0];return(hit&&m[hit])||m.normal||m._||0}
 function imgs(c){
+  if(c.imh)return{lo:c.img||c.imh,hi:c.imh,lo2:'',hi2:c.img||''};
   var lo=c.img||'',hi=lo?hiImg(lo):'';
   if(c.tp>0)return{lo:TCGI+c.tp+'_200w.jpg',hi:TCGI+c.tp+'_in_1000x1000.jpg',lo2:lo,hi2:hi||lo};
   return{lo:lo,hi:hi,lo2:'',hi2:lo};
@@ -585,10 +716,10 @@ async function tagView(app,id){
   if(s=='unclaimed'){
     pend(id);
     if(!U){want=id;h=back+'<h1>Register your box</h1><p class="sub">Create a free account or sign in (above) to add this box to your collection and keep it synced across your devices.</p>'}
-    else h=back+'<h1>Register your box</h1><p class="sub">This box is ready to be added to your account.</p><div class="card"><label class="l">Name this box</label><div class="row"><input id="bn" class="grow" value="My Deck Box"><button class="pri" onclick="claim(\''+esc(id)+'\')">Register</button></div><p class="note err" id="cm"></p></div>';
+    else h=back+'<h1>Register your box</h1><p class="sub">This box is ready to be added to your account.</p><div class="card">'+newGameBlock()+'<label class="l">Name this box</label><div class="row"><input id="bn" class="grow" value="My Deck Box"><button class="pri" onclick="claim(\''+esc(id)+'\')">Register</button></div><p class="note err" id="cm"></p></div>';
   }else if(s=='yours'){
     if(U){await sync();if(S.boxes[id]){render();return}}
-    h=back+'<h1>Welcome back</h1><p class="sub">This box is registered to your account. Name it to start tracking its cards.</p><div class="card"><div class="row"><input id="bn" class="grow" value="My Deck Box"><button class="pri" onclick="makeBox(\''+esc(id)+'\')">Continue</button></div></div>';
+    h=back+'<h1>Welcome back</h1><p class="sub">This box is registered to your account. Name it to start tracking its cards.</p><div class="card">'+newGameBlock()+'<label class="l">Name this box</label><div class="row"><input id="bn" class="grow" value="My Deck Box"><button class="pri" onclick="makeBox(\''+esc(id)+'\')">Continue</button></div></div>';
   }else if(s=='taken'){
     if(!U){want=id;h=back+'<h1>Box already registered</h1><p class="sub">This box has already been registered. If it’s yours, sign in (above) to view it.</p>'}
     else h=back+'<h1>Box already registered</h1><p class="sub">This box is registered to a different account.'+(CONTACT?' '+esc(CONTACT):' If you think this is a mistake, please contact the shop.')+'</p>';
@@ -600,7 +731,7 @@ async function claim(id){
   var n=($('#bn').value||'').trim()||'My Deck Box',cm=$('#cm'),r;
   try{r=await sb.rpc('claim_tag',{c:id})}catch(e){r={error:e}}
   if(r.error||!r.data){if(cm)cm.textContent='Could not register this box. Please try again.';return}
-  if(r.data=='claimed'){pend('');S.boxes[id]={name:n,cards:[],t:Date.now()};save();render();return}
+  if(r.data=='claimed'){pend('');S.boxes[id]={name:n,game:NEWG,cards:[],t:Date.now()};save();render();return}
   render();
 }
 function goCode(){var c=slug(($('#bc').value||'').trim());if(c)location.hash=c}
@@ -649,9 +780,35 @@ function clearBox(){var b=cur();if(!b)return;var n=0;b.cards.forEach(function(c)
 function rm(i){var b=cur();b.cards=b.cards.filter(function(c){return c.id!=i});save();render()}
 function cp(){var l=$('#lk');l.select();try{navigator.clipboard.writeText(l.value)}catch(e){try{document.execCommand('copy')}catch(e2){}}}
 function showBk(){$('#bk').value=JSON.stringify(cur())}
-function restore(){try{var o=JSON.parse($('#bk').value);if(o&&Array.isArray(o.cards)){S.boxes[location.hash.slice(1)]={name:String(o.name||'Box'),cards:o.cards};save();render()}}catch(e){alert('That backup text could not be read.')}}
+function restore(){try{var o=JSON.parse($('#bk').value);if(o&&Array.isArray(o.cards)){var ob=cur(),gm=(GAMES[o.game]&&o.game)||(ob&&ob.game);S.boxes[location.hash.slice(1)]={name:String(o.name||'Box'),cards:o.cards};if(gm)S.boxes[location.hash.slice(1)].game=gm;save();render()}}catch(e){alert('That backup text could not be read.')}}
+// ---- deactivate: release the tag from this account and delete the box and its cards ----
+var DEACT=false,FLASH='';
+function deactPanel(b){
+  var n=0;b.cards.forEach(function(c){n+=c.qty});
+  return'<b>Deactivate \u201c'+esc(b.name)+'\u201d?</b>'
+   +'<p class="note err" style="font-weight:600">This action cannot be undone.</p>'
+   +'<p class="note">Deactivating removes this box from your account and permanently deletes '+(n?'all '+n+' card'+(n==1?'':'s')+' in it':'its card list')+', on every device. The tag is reset, so the next person who scans it can register it as a new box.</p>'
+   +'<label class="note" style="display:flex;gap:8px;align-items:flex-start;margin:10px 0"><input type="checkbox" id="dack" style="margin-top:3px" onchange="$(\'#dgo\').disabled=!this.checked"> <span>I understand this cannot be undone and all cards in this box will be removed.</span></label>'
+   +'<div class="row"><button class="danger solid" id="dgo" disabled onclick="deactivate()">Deactivate box</button><button class="ghost" onclick="deactCancel()">Cancel</button></div><p class="note err" id="dm" role="status"></p>';
+}
+function deactOpen(){if(!U){alert('Please sign in to deactivate this box.');return}DEACT=true;render();var d=$('#dack');if(d&&d.scrollIntoView)d.scrollIntoView({block:'center'})}
+function deactCancel(){DEACT=false;render()}
+async function deactivate(){
+  var id=location.hash.slice(1),b=S.boxes[id],dm=$('#dm'),btn=$('#dgo');if(!b||!$('#dack').checked)return;
+  if(!sb||!U){dm.textContent='Please sign in to deactivate this box.';return}
+  btn.disabled=true;dm.className='note';dm.textContent='Deactivating\u2026';
+  var r;try{r=await sb.rpc('release_tag',{c:id})}catch(e){r={error:e}}
+  if(r.error||r.data!=='released'){
+    var m=String(r.error&&(r.error.message||r.error.code)||'');
+    dm.className='note err';
+    dm.textContent=/release_tag|PGRST202|function/i.test(m)?'Deactivation isn\u2019t set up on the server yet, so nothing was changed.':r.data=='not_yours'?'This box isn\u2019t registered to your account, so nothing was changed.':'Could not deactivate this box, so nothing was changed. Please check your connection and try again.';
+    btn.disabled=false;return;
+  }
+  delete S.boxes[id];S.gone=(S.gone||[]).filter(function(x){return x!=id});persist();pend('');
+  DEACT=false;FLASH='\u201c'+b.name+'\u201d was deactivated and its cards were removed.';location.hash='';
+}
 function delBox(){if(confirm('Delete this box and its card list from this device?')){var gid=location.hash.slice(1);delete S.boxes[gid];(S.gone=S.gone||[]).push(gid);save();location.hash=''}}
-window.addEventListener('hashchange',function(){q='';NOTE='';IMP=null;FL={cat:'',ty:'',cond:'',set:''};render()});
+window.addEventListener('hashchange',function(){q='';NOTE='';IMP=null;DEACT=false;if(location.hash.slice(1))FLASH='';FL={cat:'',ty:'',cond:'',set:''};render()});
 if(HEADER_IMG)$('#hd').innerHTML='<img src="'+esc(HEADER_IMG)+'" alt="Home">';
 render();
 initAuth();
